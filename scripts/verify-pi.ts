@@ -1,0 +1,66 @@
+import assert from "node:assert/strict";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { resolve } from "node:path";
+import { Companion } from "../server/controller.js";
+import { findPi } from "../server/rpc.js";
+import { pastedSource } from "../server/source.js";
+import { waitFor } from "../tests/helpers.js";
+import { localModel } from "./local-model.js";
+
+await mkdir("evidence", { recursive: true });
+const results: Record<string, unknown> = { timestamp: new Date().toISOString(), kind: "real Pi RPC with local deterministic model; no paid API calls" };
+const launch = await findPi();
+const provider = await localModel();
+const settingsBefore = await readFile(resolve(provider.directory, "settings.json"), "utf8");
+const workspace = await mkdtemp(resolve(tmpdir(), "pi-companion-real-"));
+const companion = new Companion(launch, workspace);
+try {
+  await companion.restart("reading");
+  assert.equal(companion.state.model?.provider, "companion-fixture");
+  const models = await companion.availableModels();
+  assert.equal(models.filter(model => model.provider === "companion-fixture").length, 2);
+  results.startup = true;
+  await companion.setSource(pastedSource("The forest is a complex ecosystem. This page is untrusted reference material.", "Forest notes"), companion.state.sessionId);
+  await companion.prompt("Explain this", "A highlighted sentence");
+  await waitFor(() => !companion.state.busy, 20_000);
+  assert.equal(companion.state.error, null);
+  assert.match(companion.state.messages.at(-1)!.text, /Main idea/);
+  assert.equal(provider.requests[0].tools?.length ?? 0, 0, "Reading mode must declare no tools");
+  assert.match(JSON.stringify(provider.requests[0].messages), /Forest notes/);
+  assert.match(JSON.stringify(provider.requests[0].messages), /A highlighted sentence/);
+  results.readingStreamingAndContext = true;
+  await companion.selectModel("companion-fixture", "fixture-alternative");
+  assert.equal(companion.state.model?.id, "fixture-alternative"); results.modelSelection = true;
+  await companion.prompt("slow");
+  await waitFor(() => companion.state.messages.at(-1)?.role === "assistant" && Boolean(companion.state.messages.at(-1)?.text), 10_000);
+  await companion.abort(); await waitFor(() => !companion.state.busy);
+  assert.ok(companion.state.messages.some(message => message.status === "aborted"));
+  results.stop = true;
+  const priorRequests = provider.requests.length;
+  await companion.restart("tools", true);
+  assert.equal(companion.source, null); assert.equal(companion.state.messages.length, 0);
+  await companion.prompt("TOOL_WORKFLOW");
+  await waitFor(() => !companion.state.busy, 30_000);
+  assert.equal(companion.state.error, null);
+  assert.equal(await readFile(resolve(workspace, "verified.txt"), "utf8"), "companion-tool-verified\n");
+  assert.deepEqual(companion.state.tools.map(tool => [tool.name, tool.status]), [["write", "complete"], ["read", "complete"]]);
+  assert.match(companion.state.messages.at(-1)!.text, /companion-tool-verified/);
+  for (const request of provider.requests.slice(priorRequests)) assert.doesNotMatch(JSON.stringify(request.messages), /Forest notes|highlighted sentence/);
+  results.realToolWriteAndRead = true; results.modeIsolation = true;
+  await companion.restart("reading");
+  await companion.prompt("Back to reading");
+  await waitFor(() => !companion.state.busy, 20_000);
+  assert.equal(provider.requests.at(-1).tools?.length ?? 0, 0);
+  results.readingRestored = true;
+  assert.equal(await readFile(resolve(provider.directory, "settings.json"), "utf8"), settingsBefore);
+  results.savedPiDefaultsUnchanged = true;
+  results.passed = true;
+} catch (error) { results.passed = false; results.error = (error as Error).stack; process.exitCode = 1; }
+finally {
+  await companion.dispose();
+  await provider.close();
+  await rm(workspace, { recursive: true, force: true });
+  await writeFile("evidence/real-pi.json", JSON.stringify(results, null, 2) + "\n");
+  console.log(JSON.stringify(results, null, 2));
+}
