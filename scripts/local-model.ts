@@ -37,6 +37,16 @@ export async function localModel() {
     let answer = envelope.request?.includes("TOOL_WORKFLOW") ? "Tool workflow complete: companion-tool-verified."
       : envelope.request === "xss" ? 'Safe **markdown**. <script>window.compromised=1</script><img src="https://tracker.invalid/pixel" onerror="window.compromised=1"><a href="javascript:alert(1)">unsafe</a><p style="position:fixed" class="toast" id="question">no styling</p>'
       : "**Main idea:** A thoughtful answer grounded in the shared reading.\n\nThe selected passage helps focus our discussion. Unicode works: café π 🌱\u2028line\u2029paragraph.";
+    if (envelope.request === "ARTICLE_REFERENCES") {
+      // Read the actual index transported through Pi, including on follow-up requests.
+      const page = users.map((user: any) => {
+        const value = typeof user.content === "string" ? user.content : user.content?.map((part: any) => part.text ?? "").join("");
+        try { return JSON.parse(value).page; } catch { return undefined; }
+      }).filter(Boolean).at(-1);
+      answer = (page?.sections ?? []).map((section: any) =>
+        `[Go to ${section.title.replace(/[\\[\]]/g, "\\$&")}](${section.href})`).join("\n\n")
+        + "\n\n[Invented reference](#article-missing-section-9999) [App control](#question).";
+    }
     const slow = envelope.request === "slow";
     if (slow) answer = "A slow, cancellable response. ".repeat(100);
     const chunks = answer.match(/[\s\S]{1,12}/g) ?? [];

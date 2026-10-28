@@ -1,4 +1,15 @@
 export type Mode = "reading" | "tools";
+export interface SourceSection {
+  id: string;
+  title: string;
+  /** Heading level (1–6), or 0 for a paragraph reference. */
+  level: number;
+  /** UTF-16 range of the heading or paragraph in Source.text. */
+  start: number;
+  end: number;
+  /** Index in the sanitized article's nonempty headings; absent for plain text. */
+  heading?: number;
+}
 export interface Source {
   id: string;
   kind: "link" | "text";
@@ -6,6 +17,8 @@ export interface Source {
   url?: string;
   /** Plain text: the only article content Pi receives. */
   text: string;
+  /** App-generated navigation targets, never ids supplied by a fetched page. */
+  sections: SourceSection[];
   warnings: string[];
   byline?: string;
   published?: string;

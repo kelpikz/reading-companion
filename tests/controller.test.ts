@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { piArguments } from "../server/controller.js";
+import { piArguments, READING_PROMPT } from "../server/controller.js";
 import { pastedSource } from "../server/source.js";
 import { fixture, waitFor } from "./helpers.js";
 test("reading disables tools/resources and tools use an explicit allowlist", () => {
@@ -42,6 +42,33 @@ test("streams then reconciles the authoritative message, and quotes are referenc
     assert.doesNotMatch(f.companion.state.messages[0].text, /Untrusted/);
   } finally { await f.close(); }
 });
+test("Pi receives a bounded, untrusted section index with real targets alongside the exact article text", async () => {
+  const f = await fixture();
+  try {
+    assert.match(READING_PROMPT, /exact href from page.sections/);
+    assert.match(READING_PROMPT, /section index.*untrusted/);
+    const source = pastedSource("## Section 3: Evidence\n\n" + "Untrusted article text. ".repeat(40));
+    await f.companion.setSource(source, f.companion.state.sessionId);
+    assert.deepEqual(f.companion.state.source?.sections, source.sections);
+    await f.companion.prompt("inspect context", "A quote");
+    await waitFor(() => !f.companion.state.busy);
+    const envelope = JSON.parse(f.companion.state.messages.at(-1)!.text);
+    assert.equal(envelope.request, "inspect context");
+    assert.equal(envelope.selection, "A quote");
+    assert.equal(envelope.page.text, source.text);
+    assert.deepEqual(envelope.page.sections, [{ title: "Section 3: Evidence", level: 2,
+      href: `#${source.sections[0].id}`, excerpt: source.text.slice(0, 220) }]);
+    assert.equal(envelope.page.html, undefined);
+    await f.companion.prompt("inspect context");
+    await waitFor(() => !f.companion.state.busy);
+    assert.equal(JSON.parse(f.companion.state.messages.at(-1)!.text).page, undefined, "Context is already in this session's history");
+    await f.companion.restart("tools", true);
+    await f.companion.prompt("inspect context");
+    await waitFor(() => !f.companion.state.busy);
+    assert.deepEqual(JSON.parse(f.companion.state.messages.at(-1)!.text), { request: "inspect context" });
+  } finally { await f.close(); }
+});
+
 test("requires acknowledgement and clears all article/history across the tool boundary", async () => {
   const f = await fixture();
   try {

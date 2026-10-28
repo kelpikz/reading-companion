@@ -326,6 +326,10 @@ input:focus, .source-form textarea:focus { outline: none; border-color: var(--ac
   .reader-article img { background: #fff; }
 }
 .reader-loading { display: flex; align-items: center; gap: 8px; margin-top: 24px; color: var(--text-3); }
+.reader :is(.reader-article, .reader-text) .reference-highlight {
+  background: var(--accent-soft); outline: 3px solid var(--accent-soft); border-radius: 3px;
+}
+.reader-text span[id] { box-decoration-break: clone; -webkit-box-decoration-break: clone; }
 .quote-pop {
   position: fixed; z-index: 40; transform: translate(-50%, calc(-100% - 8px));
   display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 12px; border-radius: 8px;
@@ -382,6 +386,8 @@ input:focus, .source-form textarea:focus { outline: none; border-color: var(--ac
 .prose li::marker { color: var(--text-3); }
 .prose strong { font-weight: 600; }
 .prose a { color: var(--accent-text); text-underline-offset: 2px; }
+.prose a[href^="#article-"] { text-decoration-style: dotted; }
+.prose a[href^="#article-"]:hover { text-decoration-style: solid; }
 .prose code { padding: .12em .38em; border-radius: 5px; background: var(--surface-2); font-size: .87em; }
 .prose pre { padding: 12px 14px; border-radius: 10px; border: 1px solid var(--border); background: var(--bg-panel); overflow-x: auto; font-size: 13px; line-height: 1.6; }
 .prose pre code { padding: 0; background: none; font-size: inherit; }

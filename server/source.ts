@@ -7,8 +7,9 @@ import ipaddr from "ipaddr.js";
 import { JSDOM } from "jsdom";
 import { Readability } from "@mozilla/readability";
 import createDOMPurify from "dompurify";
-import type { Source } from "../shared/types.js";
+import type { Source, SourceSection } from "../shared/types.js";
 import { ARTICLE_PURIFY, finishArticle } from "../shared/article.js";
+import { articleHeadings, MAX_SECTIONS, sectionId, textSections } from "../shared/sections.js";
 
 export const MAX_SOURCE_CHARS = 120_000;
 export const MAX_PAGE_BYTES = 2_000_000;
@@ -139,8 +140,9 @@ async function follow<T extends { status: number; location?: string }>(input: st
 function cleanText(text: string): string {
   return text.replace(/\r\n?/g, "\n").replace(/[ \t]+/g, " ").replace(/ *\n */g, "\n").replace(/\n{3,}/g, "\n\n").trim();
 }
-function elementText(element: Element): string {
+function elementText(element: Element, sourceId: string): { text: string; sections: SourceSection[] } {
   const clone = element.cloneNode(true) as Element;
+  const headings = articleHeadings(clone);
   // Pi cannot see figures, so their descriptions stand in for them.
   clone.querySelectorAll("img").forEach(img => {
     const alt = img.getAttribute("alt")?.trim();
@@ -153,7 +155,30 @@ function elementText(element: Element): string {
   clone.querySelectorAll("script,style,noscript,template,iframe,svg,canvas,form,nav,footer,header").forEach(node => node.remove());
   clone.querySelectorAll("br").forEach(node => node.replaceWith("\n"));
   clone.querySelectorAll("p,div,h1,h2,h3,h4,h5,h6,li,pre,blockquote,section,tr").forEach(node => { node.prepend("\n"); node.append("\n"); });
-  return cleanText(clone.textContent ?? "");
+
+  // Temporary, unpredictable markers record actual heading positions, not a text search that could
+  // confuse a repeated heading with an earlier mention. They are removed before text leaves here.
+  const marker = `\u0000${randomUUID()}:`;
+  const labels = new Map<number, { title: string; level: number }>();
+  headings.slice(0, MAX_SECTIONS).forEach((node, index) => {
+    const title = cleanText(node.textContent ?? "");
+    if (!title) return;
+    labels.set(index, { title, level: Number(node.tagName.slice(1)) });
+    node.replaceWith(`\n${marker}${index}\u0000${title}\n`);
+  });
+  const tagged = cleanText(clone.textContent ?? "");
+  const sections: SourceSection[] = [];
+  let text = "", previous = 0;
+  for (const match of tagged.matchAll(new RegExp(marker + "(\\d+)\\u0000", "g"))) {
+    text += tagged.slice(previous, match.index);
+    const heading = Number(match[1]);
+    const { title, level } = labels.get(heading)!;
+    sections.push({ id: sectionId(sourceId, sections.length), title: title.slice(0, 300), level,
+      start: text.length, end: text.length + title.length, heading });
+    previous = match.index! + match[0].length;
+  }
+  text += tagged.slice(previous);
+  return { text, sections };
 }
 
 /** Gives each SVG its own id prefix and keeps url(#id) and href="#id" references working. */
@@ -213,7 +238,7 @@ function richArticle(window: JSDOM["window"], holder: Element, pageUrl: string, 
   const output = document.createElement("div");
   output.append(fragment);
   const html = output.innerHTML;
-  return html.length > MAX_HTML_CHARS ? null : { html, images };
+  return html.length > MAX_HTML_CHARS ? null : { html, images, ...elementText(output, id) };
 }
 
 export function extractSource(body: string, url: string, type = "text/html"): Source {
@@ -221,6 +246,7 @@ export function extractSource(body: string, url: string, type = "text/html"): So
   let title = new URL(url).hostname;
   let text = body;
   let rich: { html: string; images: string[] } | null = null;
+  let sections: SourceSection[] = [];
   let byline: string | undefined;
   let published: string | undefined;
   const warnings: string[] = [];
@@ -230,7 +256,7 @@ export function extractSource(body: string, url: string, type = "text/html"): So
       const document = dom.window.document;
       title = document.title.trim() || title;
       const lead = document.querySelector('meta[property="og:image"], meta[name="twitter:image"]')?.getAttribute("content")?.trim() ?? "";
-      const fallback = elementText(document.querySelector("article, main") ?? document.body);
+      const fallback = elementText(document.querySelector("article, main") ?? document.body, id);
       const article = new Readability(document, { charThreshold: 150 }).parse();
       if (article?.content) {
         title = article.title?.trim() || title;
@@ -238,10 +264,14 @@ export function extractSource(body: string, url: string, type = "text/html"): So
         published = article.publishedTime?.trim().slice(0, 40) || undefined;
         const holder = document.createElement("div");
         holder.append(JSDOM.fragment(article.content));
-        text = elementText(holder);
-        rich = richArticle(dom.window, holder, url, id, lead);
+        const readable = richArticle(dom.window, holder, url, id, lead);
+        const content = readable ?? elementText(holder, id);
+        text = content.text;
+        sections = content.sections.map(section => readable ? section : withoutHeading(section));
+        rich = readable ? { html: readable.html, images: readable.images } : null;
       } else {
-        text = fallback;
+        text = fallback.text;
+        sections = fallback.sections.map(withoutHeading);
         warnings.push("Could not confidently isolate the article. Check the context preview.");
       }
     } finally { dom.window.close(); }
@@ -253,7 +283,10 @@ export function extractSource(body: string, url: string, type = "text/html"): So
     text = text.slice(0, MAX_SOURCE_CHARS);
     warnings.push("Only the first 120,000 characters were included. Paste a specific section for more focused questions.");
   }
-  return { id, kind: "link", title: title.slice(0, 300), url, text, warnings, byline, published, ...(rich ?? {}) };
+  // Do not expose targets for headings that the model never received after truncation.
+  sections = sections.filter(section => section.end <= text.length);
+  if (!sections.length) sections = textSections(text, id);
+  return { id, kind: "link", title: title.slice(0, 300), url, text, sections, warnings, byline, published, ...(rich ?? {}) };
 }
 
 export async function fetchSource(input: string, options: { resolve?: Resolver; download?: Downloader; timeoutMs?: number } = {}): Promise<Source> {
@@ -267,9 +300,12 @@ export async function fetchImage(input: string, options: { resolve?: Resolver; d
   return { type: response.type.split(";")[0].trim(), body: response.bytes };
 }
 
+function withoutHeading({ heading: _heading, ...section }: SourceSection): SourceSection { return section; }
+
 export function pastedSource(text: string, title = ""): Source {
   text = text.trim();
   if (!text) throw new Error("Paste some article text or a selected passage first.");
   if (text.length > MAX_SOURCE_CHARS) throw new Error("Use at most 120,000 characters. Paste the relevant section instead.");
-  return { id: randomUUID(), kind: "text", title: title.trim().slice(0, 300) || "Pasted reading", text, warnings: [] };
+  const id = randomUUID();
+  return { id, kind: "text", title: title.trim().slice(0, 300) || "Pasted reading", text, sections: textSections(text, id), warnings: [] };
 }

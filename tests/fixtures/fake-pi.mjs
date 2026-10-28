@@ -41,6 +41,7 @@ function handle(command) {
       let text = envelope.request === "xss"
         ? 'Safe **markdown**. <script>window.compromised=1</script><img src="https://tracker.invalid/pixel" onerror="window.compromised=1"><a href="javascript:alert(1)">unsafe</a><p style="position:fixed" class="toast" id="question">no styling</p>'
         : `A clear answer about ${envelope.page?.title ?? "your question"}. Quote: ${envelope.selection ?? "none"}. Unicode: café π 🌱\u2028still one record\u2029done.`;
+      if (envelope.request === "inspect context") text = JSON.stringify(envelope);
       if (envelope.request === "slow") text = "A slow reply that can be stopped. ".repeat(100);
       active = { text: "", timer: null };
       const chunks = text.match(/[\s\S]{1,20}/g) ?? [];

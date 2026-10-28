@@ -21,10 +21,11 @@ The default address is **http://127.0.0.1:47831**. Use that exact address, not `
 ## Reading flow
 
 1. In the **article panel**, add an **article link**, or **paste text** from any page, including private pages.
-2. The panel then shows the article as published: headings, images, figures, code, and tables. Switch to **Text Pi gets** to see the exact plain text that Pi receives. Pi does not see the images; image descriptions (alt text) and diagram labels are in the text as `[Image: …]` and `[Diagram: …]`.
+2. The panel then shows the article as published: headings, images, figures, code, and tables. Switch to **Text Pi gets** to see the exact plain text that Pi receives (alongside a section index for navigation). Pi does not see the images; image descriptions (alt text) and diagram labels are in the text as `[Image: …]` and `[Diagram: …]`.
 3. Ask a question. To quote part of the article, **select text in the panel** and click **Quote in chat**. You can also click **Passage** in the message box and paste a quote.
 4. In the message box, pick the **model** and the **effort** (how long Pi thinks before it answers). Effort shows only the levels that the model supports. Press **Stop** (or Esc) to stop a reply.
-5. **Export** downloads a Markdown copy. **New chat**, changing the article, and changing modes start fresh conversations.
+5. Pi can link directly to article headings in its answers. Click a heading reference to open the article panel, scroll to that heading, and briefly highlight it. This also works on narrow screens. Pasted text supports Markdown headings; text without headings uses paragraph references. Only targets in the current article are clickable. These in-app links do not work outside the app or in exported chats.
+6. **Export** downloads a Markdown copy. **New chat**, changing the article, and changing modes start fresh conversations.
 
 Enter sends; Shift+Enter inserts a newline. Nothing automatically monitors your tabs. The app follows your system light/dark theme.
 
@@ -90,7 +91,7 @@ npm run test:launcher
 
 - Unit/integration tests exercise protocol framing (including split UTF-8 and U+2028/U+2029), streaming reconciliation, stop, failures, mode isolation, model validation, URL extraction, SSRF/redirect defenses, native DNS pinning, body limits, Host/Origin/token checks, and SSE refresh.
 - `test:pi` uses your actual Pi executable with an isolated temp config and a deterministic **local HTTP model**. It checks real built-in write/read tools, streaming, quotes, Stop, models, effort (that `reasoning_effort` reaches the provider), and mode isolation without paid model calls or changes to your Pi config.
-- `test:browser` drives the production app in headless Brave/Chrome using the same real Pi + local model. It checks desktop/mobile layouts, the dark theme, the article reader (rich HTML, proxied images, the plain-text view), quoting a text selection, export, refresh, error handling, models, explicit tool mode, actual file tools, Stop, and malicious model output.
+- `test:browser` drives the production app in headless Brave/Chrome using the same real Pi + local model. It checks desktop/mobile layouts, the dark theme, the article reader (rich HTML, proxied images, the plain-text view), quoting a text selection, export, refresh, error handling, models, explicit tool mode, actual file tools, Stop, clickable article references (desktop/mobile, pasted text, and refresh), and malicious model output.
 - `test:launcher` checks the actual Windows double-click script, production build/startup, and reuse of an already-running app. It makes no model calls.
 - Reports and screenshots are in `evidence/`. They contain only test fixtures, not your credentials or chats.
 - The local deterministic model proves the integration, not the quality/latency or availability of a remote provider.
@@ -103,7 +104,7 @@ npm run test:launcher
 - `server/controller.ts`: session/mode/tool policy and normalized chat state.
 - `server/source.ts`: safe link and image fetch, article extraction (plain text for Pi, sanitized HTML for the reader).
 - `shared/article.ts`: sanitizer rules for article HTML, shared by the server and the browser.
-- `shared/types.ts`: browser/server state contract.
+- `shared/types.ts`: browser/server state contract. `shared/sections.ts` defines safe article navigation targets and pasted-text section detection.
 - `docs/adr-0001-local-web-pi-rpc.md`: accepted architecture and trade-offs.
 - `tests/`, `scripts/`: automated verification and launchers.
 

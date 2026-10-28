@@ -4,7 +4,7 @@ import { api, stream, type Link } from "./api";
 import { Chat } from "./chat";
 import { exportMarkdown } from "./export";
 import { Icon, Spinner } from "./icons";
-import { Panel, type SourcePayload } from "./panel";
+import { Panel, type ArticleJump, type SourcePayload } from "./panel";
 
 interface Confirm { title: string; body: string; label: string; tools?: boolean; action: () => Promise<void> }
 type Status = "starting" | "ready" | "busy" | "error" | "offline";
@@ -36,11 +36,12 @@ export function App() {
   const [quoteOpen, setQuoteOpen] = useState(false);
   const wide = useWide();
   const [panelOpen, setPanelOpen] = useState(wide);
+  const [articleJump, setArticleJump] = useState<ArticleJump | null>(null);
   const questionRef = useRef<HTMLTextAreaElement>(null);
   const modelRequest = useRef("");
 
   useEffect(() => { void stream(setState, setLink); }, []);
-  useEffect(() => setPanelOpen(wide), [wide]);
+  useEffect(() => { setPanelOpen(wide); setArticleJump(null); }, [wide]);
   useEffect(() => {
     if (!toast) return;
     const timer = setTimeout(() => setToast(""), 4000);
@@ -50,6 +51,7 @@ export function App() {
   // The reader needs the full article text; snapshots only carry a summary.
   const sourceId = state?.source?.id;
   useEffect(() => {
+    setArticleJump(null);
     if (!sourceId) { setSource(null); return; }
     let live = true;
     api<Source | null>("/api/source").then(next => { if (live) setSource(next); }, error => setToast(errorText(error)));
@@ -112,7 +114,7 @@ export function App() {
     const action = async () => {
       await guard(async () => { setState(await api("/api/source", payload)); });
       setToast("Article added. Ask Pi anything about it.");
-      if (!wide) setPanelOpen(false);
+      if (!wide) closePanel();
       questionRef.current?.focus();
     };
     if (!hasChat) return action();
@@ -145,18 +147,24 @@ export function App() {
   }
   function quoteSelection(text: string) {
     setQuote(text.slice(0, 20_000)); setQuoteOpen(true);
-    if (!wide) setPanelOpen(false);
+    if (!wide) closePanel();
     requestAnimationFrame(() => questionRef.current?.focus());
   }
+  function closePanel() { setPanelOpen(false); setArticleJump(null); }
   function openPanel() {
-    setPanelOpen(true);
+    setArticleJump(null); setPanelOpen(true);
     requestAnimationFrame(() => document.getElementById("source-url")?.focus());
+  }
+  function goToSection(sectionId: string) {
+    if (state?.mode !== "reading" || !state.source?.sections.some(section => section.id === sectionId)) return;
+    setArticleJump({ sourceId: state.source.id, sectionId });
+    setPanelOpen(true);
   }
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.key !== "Escape" || confirm) return;
-      if (!wide && panelOpen) setPanelOpen(false);
+      if (!wide && panelOpen) closePanel();
       else if (state?.busy) void stop();
     };
     addEventListener("keydown", onKey);
@@ -174,7 +182,7 @@ export function App() {
         {!tools && (
           <button id="toggle-panel" class="icon-btn" aria-pressed={showPanel} disabled={!state}
             aria-label={showPanel ? "Hide article panel" : "Show article panel"} title={showPanel ? "Hide article" : "Show article"}
-            onClick={() => setPanelOpen(!panelOpen)}>
+            onClick={() => { if (panelOpen) closePanel(); else openPanel(); }}>
             <Icon name="panel" size={18} />
             {state?.source && !showPanel && <span class="badge" />}
           </button>
@@ -219,16 +227,16 @@ export function App() {
       )}
 
       <div class="workspace">
-        {showPanel && !wide && <div class="scrim" onClick={() => setPanelOpen(false)} />}
+        {showPanel && !wide && <div class="scrim" onClick={closePanel} />}
         {showPanel && state && (
-          <Panel summary={state.source} source={source} idle={idle} sheet={!wide}
-            onAttach={attach} onQuote={quoteSelection} onClose={() => setPanelOpen(false)} />
+          <Panel summary={state.source} source={source} idle={idle} sheet={!wide} jump={articleJump}
+            onAttach={attach} onQuote={quoteSelection} onClose={closePanel} />
         )}
         {state ? (
           <Chat state={state} idle={idle} tools={tools} panelVisible={showPanel && wide} models={modelList}
             question={question} setQuestion={setQuestion} quote={quote} setQuote={setQuote}
             quoteOpen={quoteOpen} setQuoteOpen={setQuoteOpen} questionRef={questionRef}
-            onSend={send} onStop={stop} onModel={selectModel} onThinking={selectThinking} onOpenPanel={openPanel} />
+            onSend={send} onStop={stop} onModel={selectModel} onThinking={selectThinking} onOpenPanel={openPanel} onReference={goToSection} />
         ) : (
           <div class="loading"><Spinner /> Connecting to Pi…</div>
         )}

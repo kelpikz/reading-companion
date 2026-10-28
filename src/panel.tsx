@@ -1,9 +1,11 @@
-import { useEffect, useMemo, useRef, useState } from "preact/hooks";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "preact/hooks";
+import type { ComponentChildren } from "preact";
 import type { Source, SourceSummary } from "../shared/types";
 import { Icon, Spinner } from "./icons";
 import { renderArticle } from "./markdown";
 
 export type SourcePayload = { kind: "link"; url: string } | { kind: "text"; title: string; text: string };
+export interface ArticleJump { sourceId: string; sectionId: string }
 
 interface PanelProps {
   summary: SourceSummary | null;
@@ -11,14 +13,15 @@ interface PanelProps {
   idle: boolean;
   /** Narrow screens show the panel as an overlay sheet. */
   sheet: boolean;
+  jump: ArticleJump | null;
   onAttach: (payload: SourcePayload) => Promise<void>;
   onQuote: (text: string) => void;
   onClose: () => void;
 }
 
-export function Panel({ summary, source, idle, sheet, onAttach, onQuote, onClose }: PanelProps) {
+export function Panel({ summary, source, idle, sheet, jump, onAttach, onQuote, onClose }: PanelProps) {
   const [replacing, setReplacing] = useState(false);
-  useEffect(() => setReplacing(false), [summary?.id]);
+  useEffect(() => setReplacing(false), [summary?.id, jump]);
   const reading = summary && !replacing ? summary : null;
   return (
     <aside id="panel" class={"panel" + (sheet ? " sheet" : "")} aria-label="Article">
@@ -33,11 +36,23 @@ export function Panel({ summary, source, idle, sheet, onAttach, onQuote, onClose
       </div>
       <div class="panel-scroll">
         {reading
-          ? <Reader key={reading.id} summary={reading} source={source?.id === reading.id ? source : null} onQuote={onQuote} />
+          ? <Reader key={reading.id} summary={reading} source={source?.id === reading.id ? source : null} jump={jump} onQuote={onQuote} />
           : <SourceForm idle={idle} replacing={Boolean(summary)} onAttach={onAttach} />}
       </div>
     </aside>
   );
+}
+
+function SectionText({ source }: { source: Source }) {
+  const parts: ComponentChildren[] = [];
+  let offset = 0;
+  for (const section of source.sections) {
+    parts.push(source.text.slice(offset, section.start));
+    parts.push(<span key={section.id} id={section.id} tabIndex={-1}>{source.text.slice(section.start, section.end)}</span>);
+    offset = section.end;
+  }
+  parts.push(source.text.slice(offset));
+  return <>{parts}</>;
 }
 
 function SourceForm({ idle, replacing, onAttach }: { idle: boolean; replacing: boolean; onAttach: PanelProps["onAttach"] }) {
@@ -103,11 +118,33 @@ function SourceForm({ idle, replacing, onAttach }: { idle: boolean; replacing: b
   );
 }
 
-function Reader({ summary, source, onQuote }: { summary: SourceSummary; source: Source | null; onQuote: (text: string) => void }) {
+function Reader({ summary, source, jump, onQuote }: {
+  summary: SourceSummary; source: Source | null; jump: ArticleJump | null; onQuote: (text: string) => void;
+}) {
   const textRef = useRef<HTMLDivElement>(null);
+  const handledJump = useRef<ArticleJump | null>(null);
   const [view, setView] = useState<"article" | "text">("article");
-  const article = useMemo(() => source?.html ? renderArticle(source.html) : "", [source?.html]);
+  const article = useMemo(() => source?.html ? renderArticle(source.html, source.id, source.sections) : "", [source]);
   const showArticle = Boolean(article) && view === "article";
+
+  useLayoutEffect(() => {
+    if (!jump || jump === handledJump.current || !source || jump.sourceId !== source.id) return;
+    const section = source.sections.find(section => section.id === jump.sectionId);
+    if (!section) return;
+    const needsArticle = Boolean(article) && section.heading !== undefined;
+    if (showArticle !== needsArticle) { setView(needsArticle ? "article" : "text"); return; }
+    const node = document.getElementById(section.id);
+    const scroller = node?.closest(".panel-scroll");
+    if (!node || !scroller || !textRef.current?.contains(node)) return;
+    handledJump.current = jump;
+    node.tabIndex = -1;
+    node.focus({ preventScroll: true });
+    scroller.scrollTo({ top: scroller.scrollTop + node.getBoundingClientRect().top - scroller.getBoundingClientRect().top - 24,
+      behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth" });
+    node.classList.add("reference-highlight");
+    const timer = setTimeout(() => node.classList.remove("reference-highlight"), 2500);
+    return () => { clearTimeout(timer); node.classList.remove("reference-highlight"); };
+  }, [jump, source, showArticle, article]);
 
   // An image that fails to load is removed, with its figure when nothing else is in it.
   useEffect(() => {
@@ -167,7 +204,7 @@ function Reader({ summary, source, onQuote }: { summary: SourceSummary; source: 
       </div>
       {!source ? <div class="reader-loading"><Spinner /> Loading text…</div>
         : showArticle ? <div id="reader-article" ref={textRef} class="reader-article" dangerouslySetInnerHTML={{ __html: article }} />
-        : <div id="reader-text" ref={textRef} class="reader-text">{source.text}</div>}
+        : <div id="reader-text" ref={textRef} class="reader-text"><SectionText source={source} /></div>}
       {selection && (
         <button id="quote-selection" type="button" class={"quote-pop" + (selection.below ? " below" : "")}
           style={{ left: selection.x + "px", top: selection.y + "px" }}

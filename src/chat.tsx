@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "preact/hooks";
 import type { RefObject, VNode } from "preact";
-import type { AppState, ChatMessage, ModelChoice, ToolActivity } from "../shared/types";
+import type { AppState, ChatMessage, ModelChoice, SourceSection, ToolActivity } from "../shared/types";
+import { referencedSection } from "../shared/sections";
 import { Icon, Spinner } from "./icons";
 import { renderMarkdown } from "./markdown";
 import { Picker } from "./picker";
@@ -42,6 +43,7 @@ interface ChatProps {
   onModel: (value: string) => void;
   onThinking: (level: string) => void;
   onOpenPanel: () => void;
+  onReference: (sectionId: string) => void;
 }
 
 export function Chat(props: ChatProps) {
@@ -49,6 +51,8 @@ export function Chat(props: ChatProps) {
   const scroller = useRef<HTMLDivElement>(null);
   const stick = useRef(true);
   const [atBottom, setAtBottom] = useState(true);
+  // SSE snapshots recreate arrays, but a source's index never changes for the same id.
+  const sections = useMemo(() => state.mode === "reading" ? state.source?.sections : undefined, [state.mode, state.source?.id]);
 
   useEffect(() => { stick.current = true; setAtBottom(true); }, [state.sessionId]);
   // Follow new output unless the reader has scrolled up.
@@ -77,7 +81,8 @@ export function Chat(props: ChatProps) {
   addTools(0);
   state.messages.forEach((message, index) => {
     if (message.role === "user") items.push(<UserMessage key={message.id} message={message} />);
-    else if (message.text || message.status === "aborted" || message.status === "error") items.push(<AssistantMessage key={message.id} message={message} />);
+    else if (message.text || message.status === "aborted" || message.status === "error") items.push(
+      <AssistantMessage key={message.id} message={message} sections={sections} onReference={props.onReference} />);
     addTools(index + 1);
   });
   const last = state.messages.at(-1);
@@ -167,8 +172,10 @@ function UserMessage({ message }: { message: ChatMessage }) {
   );
 }
 
-function AssistantMessage({ message }: { message: ChatMessage }) {
-  const html = useMemo(() => renderMarkdown(message.text), [message.text]);
+function AssistantMessage({ message, sections, onReference }: {
+  message: ChatMessage; sections?: readonly SourceSection[]; onReference: (sectionId: string) => void;
+}) {
+  const html = useMemo(() => renderMarkdown(message.text, sections), [message.text, sections]);
   const [copied, setCopied] = useState(false);
   async function copy() {
     try { await navigator.clipboard.writeText(message.text); setCopied(true); setTimeout(() => setCopied(false), 1500); }
@@ -178,7 +185,11 @@ function AssistantMessage({ message }: { message: ChatMessage }) {
     <div class="message assistant" role="listitem" data-status={message.status}>
       <span class="avatar" aria-hidden="true">π</span>
       <div class="message-main">
-        <div class="message-body prose" dangerouslySetInnerHTML={{ __html: html }} />
+        <div class="message-body prose" dangerouslySetInnerHTML={{ __html: html }} onClick={event => {
+          const link = event.target instanceof Element ? event.target.closest("a") : null;
+          const section = referencedSection(link?.getAttribute("href") ?? "", sections ?? []);
+          if (section) { event.preventDefault(); onReference(section.id); }
+        }} />
         {message.status !== "streaming" && (
           <div class="message-actions">
             {message.text && (
