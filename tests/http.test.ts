@@ -6,12 +6,13 @@ import { resolve } from "node:path";
 import { request as httpRequest } from "node:http";
 import { createApp } from "../server/http.js";
 import { fixture } from "./helpers.js";
+import { pastedSource } from "../server/source.js";
 
-async function host() {
+async function host(options: Parameters<typeof createApp>[3] = {}) {
   const f = await fixture();
   const dist = await mkdtemp(resolve(tmpdir(), "pi-companion-http-"));
   await writeFile(resolve(dist, "index.html"), '<html><meta name="companion-token" content="__COMPANION_TOKEN__"></html>');
-  const app = createApp(f.companion, dist);
+  const app = createApp(f.companion, dist, "", options);
   const origin = await app.listen(0);
   const html = await (await fetch(origin)).text();
   const token = /content="([^"]+)"/.exec(html)![1];
@@ -79,4 +80,27 @@ test("authenticated SSE restores a full snapshot after refresh", async () => {
     assert.equal(state.sessionId, h.companion.state.sessionId);
     await reader.cancel();
   } finally { abort.abort(); await h.close(); }
+});
+test("media serves only the current article's images, sandboxed, through the image fetcher", async () => {
+  const requested: string[] = [];
+  const h = await host({ fetchImage: async url => {
+    requested.push(url);
+    if (url.endsWith("broken.png")) throw new Error("This link resolves to a local, private, or reserved address.");
+    return { type: "image/png", body: Buffer.from([137, 80, 78, 71]) };
+  } });
+  try {
+    const source = { ...pastedSource("An article with images."), kind: "link" as const, images: ["https://example.org/a.png", "https://example.org/broken.png"] };
+    await h.companion.setSource(source, h.companion.state.sessionId);
+    const ok = await fetch(`${h.origin}/media/${source.id}/0`);
+    assert.equal(ok.status, 200);
+    assert.equal(ok.headers.get("content-type"), "image/png");
+    assert.match(ok.headers.get("content-security-policy")!, /sandbox/);
+    assert.deepEqual([...new Uint8Array(await ok.arrayBuffer())], [137, 80, 78, 71]);
+    assert.equal((await fetch(`${h.origin}/media/${source.id}/1`)).status, 502);
+    for (const path of [`/media/${source.id}/2`, "/media/not-the-source/0", `/media/${source.id}/-1`, `/media/${source.id}/x`]) {
+      assert.equal((await fetch(h.origin + path)).status, 404, path);
+    }
+    assert.equal((await fetch(`${h.origin}/media/${source.id}/0`, { headers: { "Sec-Fetch-Site": "cross-site" } })).status, 403);
+    assert.deepEqual(requested, ["https://example.org/a.png", "https://example.org/broken.png"]);
+  } finally { await h.close(); }
 });

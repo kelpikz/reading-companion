@@ -4,7 +4,7 @@ A small, local reading companion for **Chrome, Chromium, and Brave**. The browse
 
 ## Open it
 
-On this Windows machine, double-click **Open Pi Companion.cmd** in this folder. It builds the app and opens Brave (or Chrome if Brave is not installed). **Keep its terminal window open.** Close it or press Ctrl+C to stop the app.
+On this Windows machine, double-click **Open Pi Companion.cmd** in this folder. It builds the app and opens Brave (or Chrome if Brave is not installed). **Keep its terminal window open.** Close it or press Ctrl+C to stop the app. If the app is already running, the launcher only opens the browser. If the running copy is an older version (for example, after an update), the launcher stops and tells you. Close the old window, then start again.
 
 Or, from this folder:
 
@@ -20,13 +20,15 @@ The default address is **http://127.0.0.1:47831**. Use that exact address, not `
 
 ## Reading flow
 
-1. Add an **article link**, or **paste text** from any page, including private pages.
-2. Check **Preview text** to see exactly what was extracted.
-3. Ask a question. Optionally use **Add a passage** to paste a highlighted quote alongside it.
-4. Change models with the picker, or press **Stop** to interrupt a reply.
+1. In the **article panel**, add an **article link**, or **paste text** from any page, including private pages.
+2. The panel then shows the article as published: headings, images, figures, code, and tables. Switch to **Text Pi gets** to see the exact plain text that Pi receives. Pi does not see the images; image descriptions (alt text) and diagram labels are in the text as `[Image: …]` and `[Diagram: …]`.
+3. Ask a question. To quote part of the article, **select text in the panel** and click **Quote in chat**. You can also click **Passage** in the message box and paste a quote.
+4. In the message box, pick the **model** and the **effort** (how long Pi thinks before it answers). Effort shows only the levels that the model supports. Press **Stop** (or Esc) to stop a reply.
 5. **Export** downloads a Markdown copy. **New chat**, changing the article, and changing modes start fresh conversations.
 
-Enter sends; Shift+Enter inserts a newline. Nothing automatically monitors your tabs. For a side-by-side reading experience, place this app in a separate narrow browser window next to your article.
+Enter sends; Shift+Enter inserts a newline. Nothing automatically monitors your tabs. The app follows your system light/dark theme.
+
+On wide windows (1080 px or more), the article panel is on the left and the chat is on the right. On narrow windows, the chat fills the window, and the panel button at the top left opens the article as an overlay. A narrow window next to your real article tab works well.
 
 **Chats and context live only in the local server's memory.** Refreshing the browser reconnects to the same conversation. Restarting the app loses it. All open app tabs share one live conversation. Exports, tool-created files, OS swap/crash data, and model-provider retention are outside this in-memory policy.
 
@@ -41,7 +43,9 @@ Enter sends; Shift+Enter inserts a newline. Nothing automatically monitors your 
 
 The local server fetches public HTML/plain text and extracts readable content with Mozilla Readability. It does not use cookies, your Brave/Chrome profile, or a JavaScript browser renderer. Login, paywall, anti-bot, and client-rendered pages can fail or return incomplete text. Paste the relevant text instead; the app never silently claims to have read the whole page.
 
-Limits: 20-second fetch deadline, 2 MB response, 5 redirects, 120,000 characters of article text, 20,000 characters per quote, 16,000 per question, and 200 transcript messages per session. Truncated or suspiciously short extraction is labelled. PDFs/video/image reading and automatic current-tab/selection capture are not included. Outbound article fetching does not currently support an HTTP proxy.
+Images in the article are loaded through the local server (`/media/<article id>/<n>`), with the same checks as article links: public addresses only, redirects rechecked, 10 MB per image, 80 images per article. The browser never contacts the article's site directly. When the article body has no image, the page's preview image (`og:image`) is shown at the top. Inline SVG diagrams are shown as static pictures. Diagrams that the site animates or colors with its own scripts and CSS show their first frame in neutral colors. Videos, embeds, and interactive widgets are not shown; use **Open the original** for those.
+
+Limits: 20-second fetch deadline, 2 MB response, 5 redirects, 120,000 characters of article text, 20,000 characters per quote, 16,000 per question, and 200 transcript messages per session. Truncated or suspiciously short extraction is labelled. PDFs, video, sending images to the model, and automatic current-tab/selection capture are not included. Outbound article fetching does not currently support an HTTP proxy.
 
 ## Privacy and local security
 
@@ -49,7 +53,7 @@ Limits: 20-second fetch deadline, 2 MB response, 5 redirects, 120,000 characters
 
 The HTTP server binds only to 127.0.0.1, validates exact Host/Origin, and requires a random per-launch token for all API/event requests. The token is only bootstrapped into the app page, not localStorage. No CORS is enabled. Static paths cannot expose source files or Pi credentials. The backend exposes a narrow API, not arbitrary Pi RPC commands.
 
-The link fetcher rejects local/private/reserved IPs, rechecks redirects, pins validated DNS addresses, enforces time/size limits, and runs no fetched scripts. Reading content is treated as untrusted reference material. Markdown is sanitized; raw HTML is displayed as text; images, scripts, inline styles, and remote trackers are not rendered.
+The link fetcher rejects local/private/reserved IPs, rechecks redirects, pins validated DNS addresses, enforces time/size limits, and runs no fetched scripts. Reading content is treated as untrusted reference material. Chat Markdown is sanitized; raw HTML in replies is displayed as text, and replies cannot show images. Article HTML is sanitized twice (server and browser) with one shared rule set (`shared/article.ts`): no scripts, styles, classes, forms, frames, or media players, and image sources must be the local `/media/` proxy. `/media/` serves only the current article's own images; the random article id in the path works as the access key, because an `<img>` cannot send the app token. Proxied images are sent with a sandbox content security policy.
 
 These measures do not protect against malicious software already running as your user, a compromised browser/extension, or dangerous actions you explicitly enable in tool mode. Do not expose this service through ngrok, a reverse proxy, or your LAN.
 
@@ -73,7 +77,7 @@ set PI_COMPANION_PORT=47832
 call "Open Pi Companion.cmd"
 ```
 
-The model picker changes only the live process, not your saved Pi defaults. Missing/expired provider credentials surface as an error in the chat; use the Pi terminal login flow to fix them, then reconnect.
+The model and effort pickers change only the live process, not your saved Pi defaults. Your choice stays when you start a new chat or change modes, but resets to Pi defaults when the app restarts. Missing/expired provider credentials surface as an error in the chat; use the Pi terminal login flow to fix them, then reconnect.
 
 ## Verification
 
@@ -85,19 +89,20 @@ npm run test:launcher
 ```
 
 - Unit/integration tests exercise protocol framing (including split UTF-8 and U+2028/U+2029), streaming reconciliation, stop, failures, mode isolation, model validation, URL extraction, SSRF/redirect defenses, native DNS pinning, body limits, Host/Origin/token checks, and SSE refresh.
-- `test:pi` uses your actual Pi executable with an isolated temp config and a deterministic **local HTTP model**. It checks real built-in write/read tools, streaming, quotes, Stop, models, and mode isolation without paid model calls or changes to your Pi config.
-- `test:browser` drives the production app in headless Brave/Chrome using the same real Pi + local model. It checks desktop/mobile layouts, source/quote UX, export, refresh, error handling, models, explicit tool mode, actual file tools, Stop, and malicious model output.
+- `test:pi` uses your actual Pi executable with an isolated temp config and a deterministic **local HTTP model**. It checks real built-in write/read tools, streaming, quotes, Stop, models, effort (that `reasoning_effort` reaches the provider), and mode isolation without paid model calls or changes to your Pi config.
+- `test:browser` drives the production app in headless Brave/Chrome using the same real Pi + local model. It checks desktop/mobile layouts, the dark theme, the article reader (rich HTML, proxied images, the plain-text view), quoting a text selection, export, refresh, error handling, models, explicit tool mode, actual file tools, Stop, and malicious model output.
 - `test:launcher` checks the actual Windows double-click script, production build/startup, and reuse of an already-running app. It makes no model calls.
 - Reports and screenshots are in `evidence/`. They contain only test fixtures, not your credentials or chats.
 - The local deterministic model proves the integration, not the quality/latency or availability of a remote provider.
 
 ## Code map
 
-- `src/`: browser UI and styles.
+- `src/`: browser UI (Preact + TSX) and styles. `app.tsx` is the frame and actions, `panel.tsx` is the article panel, `chat.tsx` is the conversation and message box, `style.css` holds the light/dark design tokens.
 - `server/http.ts`: localhost API, static files, and SSE.
 - `server/rpc.ts`: Pi discovery, child lifecycle, strict JSONL transport.
 - `server/controller.ts`: session/mode/tool policy and normalized chat state.
-- `server/source.ts`: safe link fetch and extraction.
+- `server/source.ts`: safe link and image fetch, article extraction (plain text for Pi, sanitized HTML for the reader).
+- `shared/article.ts`: sanitizer rules for article HTML, shared by the server and the browser.
 - `shared/types.ts`: browser/server state contract.
 - `docs/adr-0001-local-web-pi-rpc.md`: accepted architecture and trade-offs.
 - `tests/`, `scripts/`: automated verification and launchers.

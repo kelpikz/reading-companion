@@ -59,7 +59,7 @@ export async function localModel() {
   }));
   await writeFile(resolve(directory, "models.json"), JSON.stringify({ providers: {
     "companion-fixture": { baseUrl: `http://127.0.0.1:${port}/v1`, api: "openai-completions", apiKey: "local-test-only",
-      models: ["fixture-reader", "fixture-alternative"].map(id => ({ id, name: id, reasoning: false, input: ["text"],
+      models: ["fixture-reader", "fixture-alternative"].map(id => ({ id, name: id, reasoning: id === "fixture-alternative", input: ["text"],
         contextWindow: 128000, maxTokens: 4096, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } })) },
   } }));
   await writeFile(resolve(directory, "auth.json"), "{}");

@@ -1,7 +1,10 @@
 import { StringDecoder } from "node:string_decoder";
 const emit = record => process.stdout.write(JSON.stringify(record) + "\n");
 let buffer = ""; const decoder = new StringDecoder("utf8");
-let model = { provider: "fixture", id: "reader", name: "Fixture Reader" };
+let model = { provider: "fixture", id: "reader", name: "Fixture Reader", reasoning: true };
+const flag = process.argv.indexOf("--thinking");
+let thinking = flag === -1 ? "off" : process.argv[flag + 1];
+const levels = () => model.reasoning ? ["off", "minimal", "low", "medium", "high"] : ["off"];
 let active = null;
 function finish(aborted = false) {
   if (active) {
@@ -14,9 +17,14 @@ function finish(aborted = false) {
 function handle(command) {
   const reply = (data = {}) => emit({ id: command.id, type: "response", command: command.type, success: true, data });
   switch (command.type) {
-    case "get_state": reply({ model, isStreaming: Boolean(active) }); break;
+    case "get_state": reply({ model, thinkingLevel: thinking, isStreaming: Boolean(active) }); break;
+    case "get_available_thinking_levels": reply({ levels: levels() }); break;
+    case "set_thinking_level": thinking = command.level; reply(); break;
     case "get_available_models": reply({ models: [model, { provider: "fixture", id: "other", name: "Other Reader" }] }); break;
-    case "set_model": model = { provider: command.provider, id: command.modelId, name: command.modelId }; reply(model); break;
+    case "set_model":
+      model = { provider: command.provider, id: command.modelId, name: command.modelId, reasoning: command.modelId === "reader" };
+      if (!levels().includes(thinking)) thinking = "off";
+      reply(model); break;
     case "clear_queue": reply({ steering: [], followUp: [] }); break;
     case "abort": finish(true); reply(); break;
     case "prompt": {

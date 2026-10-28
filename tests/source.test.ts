@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { extractSource, fetchSource, isPublicAddress, pastedSource, validateTarget } from "../server/source.js";
+import { extractSource, fetchImage, fetchSource, isPublicAddress, pastedSource, validateTarget } from "../server/source.js";
 const publicDns = async () => [{ address: "93.184.216.34", family: 4 }];
 test("rejects private, loopback, mapped, link-local, and reserved addresses", () => {
   for (const ip of ["127.0.0.1", "0.0.0.0", "10.0.0.1", "172.16.0.1", "192.168.1.4", "169.254.169.254", "100.64.0.1", "224.0.0.1", "192.0.2.1", "::1", "::", "fc00::1", "fe80::1", "::ffff:127.0.0.1", "2001:db8::1", "bad"]) assert.equal(isPublicAddress(ip), false, ip);
@@ -50,4 +50,40 @@ test("accepts pasted Unicode safely and validates input length", () => {
   assert.equal(pastedSource("Some text").title, "Pasted reading");
   assert.throws(() => pastedSource("  "), /Paste/);
   assert.throws(() => pastedSource("x".repeat(120_001)), /120,000/);
+});
+test("keeps article HTML with proxied images and SVG diagrams, but no scripts, styles, or unsafe links", () => {
+  const paragraph = "A long article explores why careful reading helps us notice assumptions and test the strength of evidence. ";
+  const source = extractSource(`<html><head><title>Rich</title><meta property="og:image" content="https://cdn.example.org/lead.png"></head><body><article><h1>Rich</h1>
+    <p>${paragraph.repeat(5)}</p>
+    <figure><img src="/img/tree.png" alt="A tall tree" srcset="/img/tree-2x.png 2x" onerror="globalThis.x=1"><figcaption>Tree caption</figcaption></figure>
+    <p id="question" class="toast" style="position:fixed">Styled <a href="javascript:alert(1)">bad</a> and <a href="/docs">good</a> links. ${paragraph}</p>
+    <svg viewBox="0 0 100 50" aria-label="A diagram of roots and fungi"><defs><clipPath id="clip"><rect width="10" height="10"></rect></clipPath></defs><g clip-path="url(#clip)"><text x="5" y="9">Underground</text></g><image href="https://tracker.example/x.png"></image></svg>
+    <img src="data:image/png;base64,AAAA"><script>globalThis.x=1</script>
+  </article></body></html>`, "https://example.org/post");
+  const html = source.html!;
+  assert.deepEqual(source.images, ["https://example.org/img/tree.png"]);
+  assert.ok(html.includes(`src="/media/${source.id}/0"`));
+  assert.match(html, /<figcaption>Tree caption<\/figcaption>/);
+  assert.match(html, /href="https:\/\/example\.org\/docs"/);
+  assert.match(html, /<svg[^>]*viewBox="0 0 100 50"/);
+  assert.match(html, /clip-path="url\(#article-svg0-0\)"/);
+  assert.match(html, /<text x="5" y="9">Underground<\/text>/);
+  assert.doesNotMatch(html, /onerror|javascript:|<script|<image|style=|class=|id="question"|srcset|data:image|tracker\.example/);
+  assert.match(source.text, /\[Image: A tall tree\]/);
+  assert.match(source.text, /\[Diagram: A diagram of roots and fungi\]/);
+  assert.doesNotMatch(source.text, /Underground/);
+});
+test("uses the page's lead image when the article body has none", () => {
+  const paragraph = "A long article explores why careful reading helps us notice assumptions and test the strength of evidence. ";
+  const source = extractSource(`<head><title>Lead</title><meta property="og:image" content="https://cdn.example.org/lead.png"></head><article><p>${paragraph.repeat(5)}</p></article>`, "https://example.org/post");
+  assert.deepEqual(source.images, ["https://cdn.example.org/lead.png"]);
+  assert.ok(source.html!.startsWith(`<figure><img src="/media/${source.id}/0"`));
+});
+test("image fetches revalidate redirects and return the image type", async () => {
+  await assert.rejects(fetchImage("https://example.org/a.png", { resolve: publicDns, download: async () =>
+    ({ status: 302, location: "http://127.0.0.1/secret.png", type: "", bytes: Buffer.alloc(0) }) }), /private/);
+  const image = await fetchImage("https://example.org/a.png", { resolve: publicDns, download: async () =>
+    ({ status: 200, type: "image/png; charset=binary", bytes: Buffer.from([1, 2, 3]) }) });
+  assert.equal(image.type, "image/png");
+  assert.deepEqual([...image.body], [1, 2, 3]);
 });

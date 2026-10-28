@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const port = Number(process.env.PI_COMPANION_PORT ?? 47831);
@@ -22,13 +22,24 @@ const browser = () => {
 async function probe() {
   try {
     const response = await fetch(url, { signal: AbortSignal.timeout(800) });
-    if (response.ok && (await response.text()).includes("<title>Pi · Reading companion</title>")) return "companion";
-    return "occupied";
-  } catch { return "free"; }
+    if (response.ok && (await response.text()).includes("<title>Pi · Reading companion</title>")) {
+      return { kind: "companion", build: response.headers.get("x-companion-build") ?? "" };
+    }
+    return { kind: "occupied" };
+  } catch { return { kind: "free" }; }
 }
 const existing = await probe();
-if (existing === "companion") { console.log("Pi Companion is already running: " + url); browser(); }
-else if (existing === "occupied") { console.error("Another app is using port " + port + ". Set PI_COMPANION_PORT to another port."); process.exitCode = 1; }
+if (existing.kind === "companion") {
+  // A server started before an update keeps running old code; reusing it mixes a new UI with an old server.
+  if (!existsSync(resolve(root, "dist-server/server/build.js"))) throw new Error("Build the app first with npm run build, or use Open Pi Companion.cmd.");
+  const { buildId } = await import(pathToFileURL(resolve(root, "dist-server/server/build.js")).href);
+  if (existing.build === await buildId(resolve(root, "dist-server"))) { console.log("Pi Companion is already running: " + url); browser(); }
+  else {
+    console.error("An older version of Pi Companion is still running at " + url + ".\nClose its window (or press Ctrl+C in it), then start the app again.");
+    process.exitCode = 1;
+  }
+}
+else if (existing.kind === "occupied") { console.error("Another app is using port " + port + ". Set PI_COMPANION_PORT to another port."); process.exitCode = 1; }
 else {
   if (!existsSync(resolve(root, "dist-server/server/start.js")) || !existsSync(resolve(root, "dist/index.html"))) {
     throw new Error("Build the app first with npm run build, or use Open Pi Companion.cmd.");
@@ -41,7 +52,7 @@ else {
   process.on("SIGTERM", () => child.kill("SIGTERM"));
   let opened = false;
   for (let attempt = 0; attempt < 100 && !exited; attempt++) {
-    if (await probe() === "companion") { browser(); opened = true; break; }
+    if ((await probe()).kind === "companion") { browser(); opened = true; break; }
     await new Promise(resolve => setTimeout(resolve, 200));
   }
   if (!opened && !exited) {

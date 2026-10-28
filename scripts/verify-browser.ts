@@ -6,6 +6,7 @@ import { chromium, type Browser } from "playwright-core";
 import { Companion } from "../server/controller.js";
 import { createApp } from "../server/http.js";
 import { findPi } from "../server/rpc.js";
+import { extractSource } from "../server/source.js";
 import { localModel } from "./local-model.js";
 
 await mkdir("evidence", { recursive: true });
@@ -21,7 +22,10 @@ const results: Record<string, unknown> = { timestamp: new Date().toISOString(), 
 const provider = await localModel();
 const workspace = await mkdtemp(resolve(tmpdir(), "pi-companion-browser-"));
 const companion = new Companion(await findPi(), workspace);
-const app = createApp(companion, resolve("dist"));
+// A 1x1 PNG stands in for article images, so the test makes no outside requests.
+const pixel = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==", "base64");
+const proxiedImages: string[] = [];
+const app = createApp(companion, resolve("dist"), "", { fetchImage: async url => { proxiedImages.push(url); return { type: "image/png", body: pixel }; } });
 let browser: Browser | undefined;
 try {
   await companion.restart("reading");
@@ -33,7 +37,7 @@ try {
   page.on("pageerror", error => errors.push(error.message));
   page.on("console", message => { if (message.type() === "error" && !/400 \(Bad Request\)/.test(message.text())) errors.push(message.text()); });
   page.on("request", request => { if (!request.url().startsWith(origin) && !request.url().startsWith("data:")) unexpectedRequests.push(request.url()); });
-  const ready = async () => { await page.waitForFunction(() => document.getElementById("status-text")?.textContent?.includes("Pi ready"), undefined, { timeout: 20_000 }); };
+  const ready = async () => { await page.waitForFunction(() => document.querySelector(".app")?.getAttribute("data-status") === "ready", undefined, { timeout: 20_000 }); };
   const send = async (text: string) => { await ready(); await page.locator("#question").fill(text); await page.locator("#send").click(); };
   await page.goto(origin); await ready();
   await page.screenshot({ path: "evidence/01-welcome-desktop.png", fullPage: true });
@@ -46,18 +50,29 @@ try {
   await page.locator("#attach-source").click();
   await page.waitForFunction(() => document.getElementById("context-title")?.textContent === "The quiet intelligence of a forest"); await ready();
   assert.equal(companion.source?.text, article); results.pastedArticle = true;
-  await page.locator("#preview-context").click();
-  await page.locator("#preview-dialog").waitFor({ state: "visible" });
-  assert.equal(await page.locator("#preview-text").textContent(), article);
-  await page.keyboard.press("Escape"); results.contextPreview = true;
-  await page.locator("#add-quote").click();
-  await page.locator("#quote-input").fill("Diversity makes a forest resilient.");
+  // The reader pane shows exactly the text Pi receives.
+  await page.locator("#reader-text").waitFor();
+  assert.equal(await page.locator("#reader-text").textContent(), article); results.contextPreview = true;
+  // Selecting article text offers a button that quotes it in the composer.
+  const passage = "Diversity makes a forest resilient";
+  await page.evaluate(text => {
+    const node = document.getElementById("reader-text")!.firstChild!;
+    const start = node.textContent!.indexOf(text);
+    const range = document.createRange(); range.setStart(node, start); range.setEnd(node, start + text.length);
+    getSelection()!.removeAllRanges(); getSelection()!.addRange(range);
+  }, passage);
+  await page.locator("#quote-selection").click();
+  assert.equal(await page.locator("#quote-input").inputValue(), passage); results.selectionQuote = true;
   await send("How do the parts of a forest work together?");
   await page.waitForFunction(() => document.querySelector(".assistant .message-body")?.textContent?.includes("Main idea"));
   await ready();
   assert.match(await page.locator(".user .message-quote").innerText(), /Diversity/);
   assert.equal(await page.locator(".assistant strong").first().innerText(), "Main idea:");
+  await page.mouse.move(0, 0);
   await page.screenshot({ path: "evidence/02-reading-desktop.png", fullPage: true }); results.streamedDiscussionAndQuote = true;
+  await page.emulateMedia({ colorScheme: "dark" });
+  await page.screenshot({ path: "evidence/06-reading-dark.png", fullPage: true });
+  await page.emulateMedia({ colorScheme: "light" }); results.darkTheme = true;
   await page.reload(); await ready();
   assert.match(await page.locator("#messages").innerText(), /How do the parts of a forest/); results.refreshRestoresLiveChat = true;
   const downloadEvent = page.waitForEvent("download"); await page.locator("#export-chat").click();
@@ -67,43 +82,56 @@ try {
 
   await page.setViewportSize({ width: 390, height: 844 });
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+  assert.equal(await page.locator("#panel").count(), 0);
   await page.screenshot({ path: "evidence/03-reading-mobile.png", fullPage: true });
-  await page.locator("#toggle-sidebar").click();
-  assert.equal(await page.locator("#context-card").isVisible(), true);
+  await page.locator("#toggle-panel").click();
+  assert.equal(await page.locator("#context-title").isVisible(), true);
   await page.screenshot({ path: "evidence/04-context-mobile.png", fullPage: true });
-  await page.locator("#toggle-sidebar").click();
+  await page.locator("#toggle-panel").click();
   await page.setViewportSize({ width: 900, height: 800 });
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
-  await page.setViewportSize({ width: 1440, height: 1000 }); results.responsiveLayout = true;
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.locator("#panel").waitFor(); results.responsiveLayout = true;
 
-  await page.locator("#toggle-reading-input").click();
+  await page.locator("#replace-source").click();
   await page.locator("#link-tab").click(); await page.locator("#source-url").fill("http://127.0.0.1");
   await page.locator("#attach-source").click(); await page.locator("#confirm-action").click();
   await page.waitForFunction(() => document.getElementById("dialog-error")?.textContent?.includes("private"));
   assert.equal(companion.source?.title, "The quiet intelligence of a forest");
   await page.locator("#cancel-dialog").click(); results.blockedPrivateNetwork = true;
 
-  await page.waitForFunction(() => (document.getElementById("model-select") as HTMLSelectElement)?.options.length >= 2);
-  await page.locator("#model-select").selectOption("companion-fixture/fixture-alternative");
-  await page.waitForFunction(() => document.getElementById("model-select")?.getAttribute("title")?.includes("fixture-alternative"));
+  assert.equal(await page.locator("#effort-picker").isDisabled(), true, "fixture-reader has no thinking levels");
+  await page.locator("#model-picker").click();
+  await page.locator("#model-picker-menu [role=option]").nth(1).waitFor();
+  await page.screenshot({ path: "evidence/07-model-picker.png" });
+  await page.locator("#model-picker-menu [role=option]", { hasText: "fixture-alternative" }).click();
+  await page.waitForFunction(() => document.getElementById("model-picker")?.title.includes("fixture-alternative"));
   assert.equal(companion.state.model?.id, "fixture-alternative"); results.modelSelection = true;
+  await page.waitForFunction(() => !(document.getElementById("effort-picker") as HTMLButtonElement).disabled);
+  await page.locator("#effort-picker").click();
+  await page.screenshot({ path: "evidence/08-effort-picker.png" });
+  await page.locator("#effort-picker-menu [role=option]", { hasText: /^High/ }).click();
+  await page.waitForFunction(() => document.getElementById("effort-picker")?.textContent?.includes("High"));
+  assert.equal(companion.state.thinking, "high"); results.effortSelection = true;
 
   await page.locator("#tools-mode").click();
-  assert.equal(await page.locator("#confirm-extra").isVisible(), true);
+  await page.locator("#confirm-extra").waitFor({ state: "visible", timeout: 5000 });
   await page.locator("#cancel-dialog").click(); assert.equal(companion.state.mode, "reading");
   await page.locator("#tools-mode").click(); await page.locator("#confirm-action").click();
   await page.locator("#confirm-dialog").waitFor({ state: "hidden" });
   await ready(); assert.equal(companion.state.mode, "tools");
   assert.equal(companion.source, null); assert.equal(companion.state.messages.length, 0); results.explicitModeIsolation = true;
+  assert.equal(companion.state.thinking, "high", "effort survives a new session"); results.effortSurvivesRestart = true;
   await send("TOOL_WORKFLOW");
   await page.waitForFunction(() => document.getElementById("messages")?.textContent?.includes("companion-tool-verified")); await ready();
   assert.equal(await readFile(resolve(workspace, "verified.txt"), "utf8"), "companion-tool-verified\n");
-  await page.locator("#tool-section > details > summary").click();
-  assert.equal(await page.locator("#tool-count").textContent(), "2");
+  assert.equal(await page.locator(".tool").count(), 2);
+  assert.equal(await page.locator(".tool[data-status='complete']").count(), 2);
+  await page.locator(".tool summary").first().click();
   await page.screenshot({ path: "evidence/05-tools-desktop.png", fullPage: true }); results.actualPiTools = true;
 
   await send("slow");
-  await page.waitForFunction(() => document.querySelectorAll(".assistant .message-body").length >= 4 || document.querySelector(".assistant:last-child .message-body")?.textContent?.includes("slow"));
+  await page.waitForFunction(() => document.getElementById("messages")?.textContent?.includes("A slow"));
   await page.locator("#stop").click(); await ready();
   assert.ok(companion.state.messages.some(message => message.status === "aborted")); results.stop = true;
 
@@ -115,6 +143,30 @@ try {
   assert.equal(await page.locator(".message-body script, .message-body img, .message-body [style], .message-body [id], .message-body [class], .message-body a[href^='javascript:']").count(), 0);
   assert.equal(await page.locator("textarea#question").count(), 1);
   assert.deepEqual(unexpectedRequests, []); results.markdownXssAndTrackingProtection = true;
+
+  const richArticle = extractSource(`<html><head><title>Rich fixture</title></head><body><article><h1>Rich fixture</h1>
+    <p>${"Roots, fungi, and water connect the life of a forest. ".repeat(8)}</p>
+    <figure><img src="/images/tree.png" alt="A tall tree" width="400" height="200" onerror="window.compromised=1"><figcaption>A tall tree in the forest</figcaption></figure>
+    <h2>Underground</h2><ul><li>Fungi</li><li>Water</li></ul><pre><code>const roots = true;</code></pre>
+    <svg viewBox="0 0 200 60" aria-label="A diagram of roots under a tree"><rect x="10" y="10" width="80" height="30"></rect><text x="20" y="30">Roots</text></svg>
+    <p style="position:fixed" id="question">${"More text about the forest floor. ".repeat(6)}</p><script>window.compromised=1</script></article></body></html>`,
+    "https://forest.example/rich");
+  await companion.setSource(richArticle, companion.state.sessionId);
+  await page.waitForFunction(() => document.getElementById("context-title")?.textContent === "Rich fixture");
+  await page.locator("#reader-article img").waitFor();
+  await page.waitForFunction(() => { const img = document.querySelector("#reader-article img") as HTMLImageElement | null; return Boolean(img?.complete && img.naturalWidth > 0); });
+  assert.match(await page.locator("#reader-article img").getAttribute("src") ?? "", /^\/media\//);
+  assert.deepEqual(proxiedImages, ["https://forest.example/images/tree.png"]);
+  assert.equal(await page.locator("#reader-article figcaption").innerText(), "A tall tree in the forest");
+  assert.equal(await page.locator("#reader-article h2, #reader-article li, #reader-article pre, #reader-article svg text").count(), 5);
+  assert.equal(await page.locator("#reader-article script, #reader-article [onerror], #reader-article [style], #reader-article [id=question]").count(), 0);
+  assert.equal(await page.locator("textarea#question").count(), 1);
+  await page.locator("#reader-article figure").scrollIntoViewIfNeeded();
+  await page.screenshot({ path: "evidence/09-rich-article.png" });
+  await page.locator("#view-text").click();
+  assert.match(await page.locator("#reader-text").innerText(), /\[Image: A tall tree\][\s\S]*\[Diagram: A diagram of roots under a tree\]/);
+  assert.equal(await page.evaluate(() => (window as unknown as { compromised?: boolean }).compromised), undefined);
+  assert.deepEqual(unexpectedRequests, []); results.richArticleWithProxiedImages = true;
   assert.deepEqual(errors, []); results.noBrowserErrors = true;
   results.passed = true;
 } catch (error) {

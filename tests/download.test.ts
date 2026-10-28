@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createServer, type RequestListener } from "node:http";
-import { download, MAX_PAGE_BYTES } from "../server/source.js";
+import { download, downloadImage, MAX_PAGE_BYTES } from "../server/source.js";
 async function site(listener: RequestListener) {
   const server = createServer(listener);
   await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
@@ -32,4 +32,12 @@ test("native fetch rejects oversized, non-text, failed, compressed, and stalled 
   const s = await site(() => {});
   try { await assert.rejects(download(s.target, AbortSignal.timeout(30)), /abort/i); }
   finally { await s.close(); }
+});
+test("the image downloader accepts images and rejects other content", async () => {
+  const s = await site((_request, response) => { response.writeHead(200, { "Content-Type": "image/gif" }); response.end("GIF89a"); });
+  try { assert.equal((await downloadImage(s.target, AbortSignal.timeout(2000))).bytes.toString(), "GIF89a"); }
+  finally { await s.close(); }
+  const page = await site((_request, response) => { response.writeHead(200, { "Content-Type": "text/html" }); response.end("<p>not an image</p>"); });
+  try { await assert.rejects(downloadImage(page.target, AbortSignal.timeout(2000)), /supported image/); }
+  finally { await page.close(); }
 });

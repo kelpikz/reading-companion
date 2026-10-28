@@ -9,6 +9,23 @@ test("reading disables tools/resources and tools use an explicit allowlist", () 
   const tools = piArguments("tools", null);
   assert.ok(!tools.includes("--no-tools"));
   assert.equal(tools[tools.indexOf("--tools") + 1], "read,bash,edit,write,grep,find,ls");
+  assert.deepEqual(piArguments("reading", null, "high").slice(-2), ["--thinking", "high"]);
+  assert.ok(!piArguments("reading", null, null).includes("--thinking"));
+});
+test("effort levels follow the model, are validated, and survive a restart", async () => {
+  const f = await fixture();
+  try {
+    assert.deepEqual(f.companion.state.thinkingLevels, ["off", "minimal", "low", "medium", "high"]);
+    assert.equal(f.companion.state.thinking, "off");
+    await assert.rejects(f.companion.selectThinking("max"), /effort level/);
+    await f.companion.selectThinking("high");
+    assert.equal(f.companion.state.thinking, "high");
+    await f.companion.restart("reading");
+    assert.equal(f.companion.state.thinking, "high");
+    await f.companion.selectModel("fixture", "other");
+    assert.deepEqual(f.companion.state.thinkingLevels, ["off"]);
+    assert.equal(f.companion.state.thinking, "off");
+  } finally { await f.close(); }
 });
 test("streams then reconciles the authoritative message, and quotes are reference context", async () => {
   const f = await fixture();

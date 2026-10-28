@@ -3,7 +3,7 @@ import { randomBytes, timingSafeEqual } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { extname, resolve, sep } from "node:path";
 import type { Companion } from "./controller.js";
-import { fetchSource, pastedSource } from "./source.js";
+import { fetchImage, fetchSource, pastedSource } from "./source.js";
 
 const MIME: Record<string, string> = { ".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8",
   ".css": "text/css; charset=utf-8", ".svg": "image/svg+xml", ".png": "image/png", ".ico": "image/x-icon" };
@@ -30,13 +30,17 @@ function string(value: unknown, name: string, max: number, optional = false): st
   return value;
 }
 
-export function createApp(companion: Companion, dist: string) {
+type ImageFetcher = (url: string) => Promise<{ type: string; body: Buffer }>;
+
+export function createApp(companion: Companion, dist: string, build = "", options: { fetchImage?: ImageFetcher } = {}) {
+  const loadImage = options.fetchImage ?? fetchImage;
   const token = randomBytes(32).toString("hex");
   let origin = "";
   let importBusy = false;
   const clients = new Set<ServerResponse>();
   const server = createServer(async (request, response) => {
     response.setHeader("Cache-Control", "no-store");
+    if (build) response.setHeader("X-Companion-Build", build);
     response.setHeader("X-Content-Type-Options", "nosniff");
     response.setHeader("Referrer-Policy", "no-referrer");
     response.setHeader("X-Frame-Options", "DENY");
@@ -52,6 +56,23 @@ export function createApp(companion: Companion, dist: string) {
         json(response, 403, { error: "Cross-origin requests are not allowed." }); return;
       }
       const url = new URL(request.url ?? "/", origin);
+      // Article images: only the current article's own images, fetched with the link checks.
+      // <img> cannot send the token; the random source id in the path is the capability.
+      if (url.pathname.startsWith("/media/")) {
+        if (request.method !== "GET") { json(response, 405, { error: "Method not allowed." }); return; }
+        const [, , sourceId, index] = url.pathname.split("/");
+        const source = companion.source;
+        const image = source && sourceId === source.id && /^\d{1,3}$/.test(index ?? "") ? source.images?.[Number(index)] : undefined;
+        if (!image) { json(response, 404, { error: "Not found." }); return; }
+        let media: Awaited<ReturnType<ImageFetcher>>;
+        try { media = await loadImage(image); }
+        catch (error) { json(response, 502, { error: error instanceof Error ? error.message : "The image could not be loaded." }); return; }
+        response.writeHead(200, { "Content-Type": media.type, "Cache-Control": "private, max-age=3600",
+          // An SVG opened directly must not run scripts in this origin.
+          "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; sandbox" });
+        response.end(media.body);
+        return;
+      }
       if (url.pathname.startsWith("/api/")) {
         const supplied = Buffer.from(String(request.headers["x-companion-token"] ?? ""));
         const expected = Buffer.from(token);
@@ -94,6 +115,9 @@ export function createApp(companion: Companion, dist: string) {
             json(response, 200, companion.snapshot()); return;
           case "/api/model":
             await companion.selectModel(string(data.provider, "provider", 200), string(data.id, "model", 300));
+            json(response, 200, companion.snapshot()); return;
+          case "/api/thinking":
+            await companion.selectThinking(string(data.level, "effort level", 20));
             json(response, 200, companion.snapshot()); return;
           case "/api/source": {
             if (importBusy) { json(response, 409, { error: "A page is already being imported." }); return; }

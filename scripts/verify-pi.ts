@@ -32,11 +32,16 @@ try {
   results.readingStreamingAndContext = true;
   await companion.selectModel("companion-fixture", "fixture-alternative");
   assert.equal(companion.state.model?.id, "fixture-alternative"); results.modelSelection = true;
+  assert.ok(companion.state.thinkingLevels.includes("high"));
+  await companion.selectThinking("high");
+  assert.equal(companion.state.thinking, "high");
   await companion.prompt("slow");
   await waitFor(() => companion.state.messages.at(-1)?.role === "assistant" && Boolean(companion.state.messages.at(-1)?.text), 10_000);
   await companion.abort(); await waitFor(() => !companion.state.busy);
   assert.ok(companion.state.messages.some(message => message.status === "aborted"));
   results.stop = true;
+  assert.equal(provider.requests.at(-1).reasoning_effort, "high", "The effort level must reach the provider");
+  results.effortReachesProvider = true;
   const priorRequests = provider.requests.length;
   await companion.restart("tools", true);
   assert.equal(companion.source, null); assert.equal(companion.state.messages.length, 0);

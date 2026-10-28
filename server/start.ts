@@ -1,5 +1,6 @@
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import { buildId } from "./build.js";
 import { Companion } from "./controller.js";
 import { createApp } from "./http.js";
 import { findPi } from "./rpc.js";
@@ -12,7 +13,7 @@ if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error("PI_COM
 try {
   const launch = await findPi();
   const companion = new Companion(launch, workspace);
-  const app = createApp(companion, resolve(root, "dist"));
+  const app = createApp(companion, resolve(root, "dist"), await buildId(resolve(root, "dist-server")));
   const origin = await app.listen(port);
   console.log(`\n  π  Pi Companion\n\n  Open ${origin} in Chrome or Brave.\n  Reading mode · ephemeral chats · tools off\n  Press Ctrl+C to stop.\n`);
   let closing = false;
