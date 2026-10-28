@@ -9,6 +9,13 @@ test("reading disables tools/resources and tools use an explicit allowlist", () 
   const tools = piArguments("tools", null);
   assert.ok(!tools.includes("--no-tools"));
   assert.equal(tools[tools.indexOf("--tools") + 1], "read,bash,edit,write,grep,find,ls");
+  for (const args of [reading, tools]) {
+    const prompt = args[args.indexOf("--system-prompt") + 1];
+    assert.match(prompt, /top-level fenced code block/);
+    assert.match(prompt, /Run widget after the reply finishes/);
+    assert.match(prompt, /no access to the parent app/);
+    assert.match(prompt, /untrusted reference/);
+  }
   assert.deepEqual(piArguments("reading", null, "high").slice(-2), ["--thinking", "high"]);
   assert.ok(!piArguments("reading", null, null).includes("--thinking"));
 });

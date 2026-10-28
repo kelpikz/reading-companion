@@ -4,6 +4,8 @@ import { readFile } from "node:fs/promises";
 import { extname, resolve, sep } from "node:path";
 import type { Companion } from "./controller.js";
 import { fetchImage, fetchSource, pastedSource } from "./source.js";
+import { chatContent, MAX_WIDGETS, WIDGET_PATH } from "../shared/widgets.js";
+import { widgetDocument, widgetPolicy, WIDGET_PERMISSIONS } from "./widgets.js";
 
 const MIME: Record<string, string> = { ".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8",
   ".css": "text/css; charset=utf-8", ".svg": "image/svg+xml", ".png": "image/png", ".ico": "image/x-icon" };
@@ -45,7 +47,8 @@ export function createApp(companion: Companion, dist: string, build = "", option
     response.setHeader("Referrer-Policy", "no-referrer");
     response.setHeader("X-Frame-Options", "DENY");
     response.setHeader("Cross-Origin-Resource-Policy", "same-origin");
-    response.setHeader("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'");
+    // Restrict frame navigation to widget pages, not arbitrary URLs or the token-bearing app page.
+    response.setHeader("Content-Security-Policy", `default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; frame-src ${origin}${WIDGET_PATH}; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'`);
     try {
       if (request.headers.host !== new URL(origin).host ||
           !["127.0.0.1", "::ffff:127.0.0.1"].includes(request.socket.remoteAddress ?? "")) {
@@ -56,6 +59,25 @@ export function createApp(companion: Companion, dist: string, build = "", option
         json(response, 403, { error: "Cross-origin requests are not allowed." }); return;
       }
       const url = new URL(request.url ?? "/", origin);
+      // An iframe cannot send the API token. The current session/message ids are a capability
+      // for this one widget, never for chat state, article text, or arbitrary supplied HTML.
+      if (url.pathname.startsWith(WIDGET_PATH)) {
+        if (request.method !== "GET") { json(response, 405, { error: "Method not allowed." }); return; }
+        if (request.headers["sec-fetch-dest"] !== "iframe" || request.headers["sec-fetch-site"] !== "same-origin") {
+          json(response, 403, { error: "Widgets can only be opened in the app's preview." }); return;
+        }
+        const match = /^\/widgets\/([^/]+)\/([^/]+)\/(0|[1-9]\d?)$/.exec(url.pathname);
+        const message = match && match[1] === companion.state.sessionId && Number(match[3]) < MAX_WIDGETS
+          ? companion.state.messages.find(message => message.id === match[2] && message.role === "assistant" && message.status === "complete")
+          : undefined;
+        const part = message && chatContent(message.text).parts.find(part => part.kind === "widget" && part.index === Number(match![3]));
+        if (!part || part.kind !== "widget") { json(response, 404, { error: "This widget is no longer available." }); return; }
+        response.removeHeader("X-Frame-Options");
+        response.writeHead(200, { "Content-Type": "text/html; charset=utf-8",
+          "Content-Security-Policy": widgetPolicy(origin), "Permissions-Policy": WIDGET_PERMISSIONS,
+          "X-DNS-Prefetch-Control": "off" });
+        response.end(widgetDocument(part.source)); return;
+      }
       // Article images: only the current article's own images, fetched with the link checks.
       // <img> cannot send the token; the random source id in the path is the capability.
       if (url.pathname.startsWith("/media/")) {

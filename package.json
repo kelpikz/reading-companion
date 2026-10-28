@@ -14,6 +14,7 @@
     "open": "node scripts/open.mjs",
     "test": "tsx --test tests/*.test.ts",
     "test:browser": "tsx scripts/verify-browser.ts",
+    "test:widgets": "tsx scripts/verify-widgets.ts",
     "test:pi": "tsx scripts/verify-pi.ts",
     "test:launcher": "tsx scripts/verify-launcher.ts",
     "check": "npm run typecheck && npm test && npm run build"

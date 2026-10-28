@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { JSDOM } from "jsdom";
 import type { SourceSection } from "../shared/types.js";
 import { sectionId } from "../shared/sections.js";
+import { chatContent } from "../shared/widgets.js";
 
 // Initialize DOMPurify exactly as the browser does, before importing the browser renderer.
 const dom = new JSDOM("<!doctype html>");
@@ -39,6 +40,30 @@ test("article references do not relax Markdown HTML, image, or unsafe-scheme fil
   assert.equal(root.querySelectorAll("script, img, [id], [style], [onclick], a[href^='javascript:']").length, 0);
   assert.match(root.textContent!, /<script>/);
   assert.equal(root.querySelector("a[href^='#']")?.getAttribute("href"), `#${sections[0].id}`);
+});
+
+test("reference labels cannot resolve inherited object properties", () => {
+  for (const label of ["constructor", "toString", "__proto__"]) {
+    const unbound = parse(renderMarkdown(`[label][${label}]`));
+    assert.equal(unbound.querySelector("a"), null);
+    const defined = parse(renderMarkdown(`[label][${label}]\n\n[${label}]: https://example.org/defined`));
+    assert.equal(defined.querySelector("a")?.getAttribute("href"), "https://example.org/defined");
+  }
+});
+
+test("splitting widgets preserves reference-style links without allowing raw HTML in surrounding prose", () => {
+  const content = chatContent(`[Before][target]\n\n\`\`\`widget Counter\n<button>Count</button>\n\`\`\`\n\n[After][target]\n\n[target]: https://example.org/article\n\n<script>window.compromised=1</script>`);
+  const roots = content.parts.filter(part => part.kind === "markdown")
+    .map(part => parse(renderMarkdown(part.text, sections, content.links)));
+  assert.equal(roots.flatMap(root => [...root.querySelectorAll("a")]).length, 2);
+  for (const root of roots) {
+    assert.equal(root.querySelectorAll("script, button, iframe").length, 0);
+    assert.equal(root.querySelector("a")?.getAttribute("href"), "https://example.org/article");
+  }
+  assert.match(roots.at(-1)!.textContent!, /<script>/);
+  const code = parse(renderMarkdown("\`\`\`widget\n<script>window.compromised=1</script>\n\`\`\`"));
+  assert.equal(code.querySelectorAll("iframe, script").length, 0);
+  assert.match(code.querySelector("code")!.textContent!, /<script>/);
 });
 
 test("article sanitization removes page ids before regenerating only known heading targets", () => {

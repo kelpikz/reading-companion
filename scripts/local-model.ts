@@ -2,6 +2,7 @@ import { createServer } from "node:http";
 import { mkdtemp, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
+import { WIDGET_REPLY } from "../tests/fixtures/widgets.js";
 
 export async function localModel() {
   const requests: any[] = [];
@@ -47,6 +48,7 @@ export async function localModel() {
         `[Go to ${section.title.replace(/[\\[\]]/g, "\\$&")}](${section.href})`).join("\n\n")
         + "\n\n[Invented reference](#article-missing-section-9999) [App control](#question).";
     }
+    if (envelope.request === "HTML_WIDGET") answer = WIDGET_REPLY;
     const slow = envelope.request === "slow";
     if (slow) answer = "A slow, cancellable response. ".repeat(100);
     const chunks = answer.match(/[\s\S]{1,12}/g) ?? [];

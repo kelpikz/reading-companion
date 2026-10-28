@@ -33,6 +33,24 @@ On wide windows (1080 px or more), the article panel is on the left and the chat
 
 **Chats and context live only in the local server's memory.** Refreshing the browser reconnects to the same conversation. Restarting the app loses it. All open app tabs share one live conversation. Exports, tool-created files, OS swap/crash data, and model-provider retention are outside this in-memory policy.
 
+## Interactive chat widgets
+
+Ask Pi, for example: **"Make an interactive widget that illustrates compound interest with sliders."** This works in reading and tool modes; no filesystem or shell tools are needed.
+
+Pi can reply with a self-contained HTML/CSS/JavaScript widget. Click **Code** to inspect it, then **Run widget** to open its isolated **Preview**. **Restart** resets it; **Stop widget** unloads it. Switching between Code and Preview preserves a running widget. Widgets never run automatically, while streaming, or from stopped/failed replies. Refresh restores their source but does not rerun code or preserve interactive state. Copy/export includes the original source, not the widget's current values.
+
+The format is a closed, top-level fenced block with the language `widget` and an optional title:
+
+~~~~markdown
+```widget Counter
+<button onclick="this.textContent = Number(this.textContent) + 1">0</button>
+```
+~~~~
+
+Use inline CSS and vanilla JavaScript, accessible labels, and responsive layouts. Inline SVG, canvas, and data-URL images work. External libraries, network APIs, external images/fonts/styles, submitting forms, frames, workers, popups, downloads, app APIs, storage, and access to chat/article content are not supported. There is no widget-to-chat command bridge. Ordinary `html` fences, raw HTML, and fences nested in quotes/lists remain inert code/text. Limits: four widgets per reply, 50,000 characters each; oversized or excess blocks remain code.
+
+**Only run generated code you trust, and never enter secrets into a widget.** An opaque-origin iframe and HTTP security policies isolate it from the app, restrict navigation, and block network APIs/external resources. These browser controls are not a complete network firewall (for example, not every browser-specific API is covered by CSP), nor an OS-level CPU/memory sandbox. Buggy code can still slow the tab. Use a separate restricted browser/container if you need that stronger boundary.
+
 ## Reading versus tools
 
 - **Reading is the default:** Pi has no tools. Extensions, MCP, discovered context files, skills, and prompt templates are disabled.
@@ -54,7 +72,7 @@ Limits: 20-second fetch deadline, 2 MB response, 5 redirects, 120,000 characters
 
 The HTTP server binds only to 127.0.0.1, validates exact Host/Origin, and requires a random per-launch token for all API/event requests. The token is only bootstrapped into the app page, not localStorage. No CORS is enabled. Static paths cannot expose source files or Pi credentials. The backend exposes a narrow API, not arbitrary Pi RPC commands.
 
-The link fetcher rejects local/private/reserved IPs, rechecks redirects, pins validated DNS addresses, enforces time/size limits, and runs no fetched scripts. Reading content is treated as untrusted reference material. Chat Markdown is sanitized; raw HTML in replies is displayed as text, and replies cannot show images. Article HTML is sanitized twice (server and browser) with one shared rule set (`shared/article.ts`): no scripts, styles, classes, forms, frames, or media players, and image sources must be the local `/media/` proxy. `/media/` serves only the current article's own images; the random article id in the path works as the access key, because an `<img>` cannot send the app token. Proxied images are sent with a sandbox content security policy.
+The link fetcher rejects local/private/reserved IPs, rechecks redirects, pins validated DNS addresses, enforces time/size limits, and runs no fetched scripts. Reading content is treated as untrusted reference material. Chat Markdown is sanitized; raw HTML in ordinary replies is displayed as text, and ordinary replies cannot show images. Only explicit `widget` fences get click-to-run previews, served from a separate widget-only route with `sandbox allow-scripts` (never `allow-same-origin`), an opaque origin, restrictive CSP/permissions, and no API token. The app permits frames only under that route; widgets cannot frame the token-bearing app page. Widget URLs are capabilities for completed assistant blocks in the current session only and are revoked on a new chat. Ordinary Markdown and article sanitization rules are unchanged. Article HTML is sanitized twice (server and browser) with one shared rule set (`shared/article.ts`): no scripts, styles, classes, forms, frames, or media players, and image sources must be the local `/media/` proxy. `/media/` serves only the current article's own images; the random article id in the path works as the access key, because an `<img>` cannot send the app token. Proxied images are sent with a sandbox content security policy.
 
 These measures do not protect against malicious software already running as your user, a compromised browser/extension, or dangerous actions you explicitly enable in tool mode. Do not expose this service through ngrok, a reverse proxy, or your LAN.
 
@@ -86,12 +104,14 @@ The model and effort pickers change only the live process, not your saved Pi def
 npm run check
 npm run test:pi
 npm run test:browser
+npm run test:widgets
 npm run test:launcher
 ```
 
 - Unit/integration tests exercise protocol framing (including split UTF-8 and U+2028/U+2029), streaming reconciliation, stop, failures, mode isolation, model validation, URL extraction, SSRF/redirect defenses, native DNS pinning, body limits, Host/Origin/token checks, and SSE refresh.
 - `test:pi` uses your actual Pi executable with an isolated temp config and a deterministic **local HTTP model**. It checks real built-in write/read tools, streaming, quotes, Stop, models, effort (that `reasoning_effort` reaches the provider), and mode isolation without paid model calls or changes to your Pi config.
 - `test:browser` drives the production app in headless Brave/Chrome using the same real Pi + local model. It checks desktop/mobile layouts, the dark theme, the article reader (rich HTML, proxied images, the plain-text view), quoting a text selection, export, refresh, error handling, models, explicit tool mode, actual file tools, Stop, clickable article references (desktop/mobile, pasted text, and refresh), and malicious model output.
+- `test:widgets` uses the production UI, a fake Pi subprocess, and installed Brave/Chrome to test widget interaction, Code/Preview, Restart/Stop, streaming/interruption handling, refresh, responsive/dark layouts, and isolation. A local HTTP sink checks blocked requests, external resources, forms, popups, navigation, and access to app/storage. Run `npm run build` first; no real model login is needed. `test:browser` additionally verifies widget output through the real Pi RPC process and source export.
 - `test:launcher` checks the actual Windows double-click script, production build/startup, and reuse of an already-running app. It makes no model calls.
 - Reports and screenshots are in `evidence/`. They contain only test fixtures, not your credentials or chats.
 - The local deterministic model proves the integration, not the quality/latency or availability of a remote provider.
@@ -101,6 +121,7 @@ npm run test:launcher
 - `src/`: browser UI (Preact + TSX) and styles. `app.tsx` is the frame and actions, `panel.tsx` is the article panel, `chat.tsx` is the conversation and message box, `style.css` holds the light/dark design tokens.
 - `server/http.ts`: localhost API, static files, and SSE.
 - `server/rpc.ts`: Pi discovery, child lifecycle, strict JSONL transport.
+- `src/widget.tsx`, `shared/widgets.ts`, `server/widgets.ts`: click-to-run widget UI, shared fence parser/limits, and isolated document policies.
 - `server/controller.ts`: session/mode/tool policy and normalized chat state.
 - `server/source.ts`: safe link and image fetch, article extraction (plain text for Pi, sanitized HTML for the reader).
 - `shared/article.ts`: sanitizer rules for article HTML, shared by the server and the browser.

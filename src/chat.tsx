@@ -2,9 +2,11 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "preact/ho
 import type { RefObject, VNode } from "preact";
 import type { AppState, ChatMessage, ModelChoice, SourceSection, ToolActivity } from "../shared/types";
 import { referencedSection } from "../shared/sections";
+import { chatContent } from "../shared/widgets";
 import { Icon, Spinner } from "./icons";
 import { renderMarkdown } from "./markdown";
 import { Picker } from "./picker";
+import { Widget } from "./widget";
 
 const EFFORT: Record<string, { label: string; hint: string }> = {
   off: { label: "Off", hint: "No extra thinking. Fastest." },
@@ -82,7 +84,7 @@ export function Chat(props: ChatProps) {
   state.messages.forEach((message, index) => {
     if (message.role === "user") items.push(<UserMessage key={message.id} message={message} />);
     else if (message.text || message.status === "aborted" || message.status === "error") items.push(
-      <AssistantMessage key={message.id} message={message} sections={sections} onReference={props.onReference} />);
+      <AssistantMessage key={message.id} message={message} sessionId={state.sessionId} sections={sections} onReference={props.onReference} />);
     addTools(index + 1);
   });
   const last = state.messages.at(-1);
@@ -172,10 +174,14 @@ function UserMessage({ message }: { message: ChatMessage }) {
   );
 }
 
-function AssistantMessage({ message, sections, onReference }: {
-  message: ChatMessage; sections?: readonly SourceSection[]; onReference: (sectionId: string) => void;
+function AssistantMessage({ message, sessionId, sections, onReference }: {
+  message: ChatMessage; sessionId: string; sections?: readonly SourceSection[]; onReference: (sectionId: string) => void;
 }) {
-  const html = useMemo(() => renderMarkdown(message.text, sections), [message.text, sections]);
+  const parts = useMemo(() => {
+    const content = chatContent(message.text);
+    return content.parts.map(part => part.kind === "markdown"
+      ? { ...part, html: renderMarkdown(part.text, sections, content.links) } : part);
+  }, [message.text, sections]);
   const [copied, setCopied] = useState(false);
   async function copy() {
     try { await navigator.clipboard.writeText(message.text); setCopied(true); setTimeout(() => setCopied(false), 1500); }
@@ -185,11 +191,15 @@ function AssistantMessage({ message, sections, onReference }: {
     <div class="message assistant" role="listitem" data-status={message.status}>
       <span class="avatar" aria-hidden="true">π</span>
       <div class="message-main">
-        <div class="message-body prose" dangerouslySetInnerHTML={{ __html: html }} onClick={event => {
+        <div class="message-body prose" onClick={event => {
           const link = event.target instanceof Element ? event.target.closest("a") : null;
           const section = referencedSection(link?.getAttribute("href") ?? "", sections ?? []);
           if (section) { event.preventDefault(); onReference(section.id); }
-        }} />
+        }}>
+          {parts.map((part, index) => part.kind === "markdown"
+            ? <div key={"markdown-" + index} dangerouslySetInnerHTML={{ __html: part.html }} />
+            : <Widget key={"widget-" + part.index} part={part} sessionId={sessionId} messageId={message.id} status={message.status} />)}
+        </div>
         {message.status !== "streaming" && (
           <div class="message-actions">
             {message.text && (

@@ -1,4 +1,4 @@
-import { marked } from "marked";
+import { Lexer, marked, type TokensList } from "marked";
 import DOMPurify from "dompurify";
 import { ARTICLE_PURIFY, finishArticle } from "../shared/article.js";
 import { articleHeadings, referencedSection, sectionId } from "../shared/sections.js";
@@ -32,8 +32,12 @@ export function renderArticle(html: string, sourceId: string, sections: readonly
   return fragmentHtml(fragment);
 }
 
-export function renderMarkdown(text: string, sections: readonly SourceSection[] = []): string {
-  const fragment = DOMPurify.sanitize(marked.parse(text, { async: false, breaks: false }), {
+export function renderMarkdown(text: string, sections: readonly SourceSection[] = [], links?: TokensList["links"]): string {
+  const lexer = new Lexer(marked.defaults);
+  // Seed definitions before inline lexing; preserve Marked's null-prototype link map.
+  Object.assign(lexer.tokens.links, links);
+  const tokens = lexer.lex(text);
+  const fragment = DOMPurify.sanitize(marked.parser(tokens, { ...marked.defaults, async: false, breaks: false }), {
     ALLOWED_TAGS: ["p", "br", "strong", "em", "del", "blockquote", "pre", "code", "ul", "ol", "li", "h1", "h2", "h3", "h4", "h5", "h6", "hr", "a", "table", "thead", "tbody", "tr", "th", "td", "sup", "sub"],
     ALLOWED_ATTR: ["href", "title"],
     ALLOWED_URI_REGEXP: /^(?:https?:|mailto:|#)/i,

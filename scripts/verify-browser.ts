@@ -231,6 +231,25 @@ try {
     await page.locator("[aria-label='Close article panel']").click();
   }
   results.pastedHeadingAndParagraphReferences = true;
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await send("HTML_WIDGET");
+  await page.locator(".widget").waitFor(); await ready();
+  assert.equal(await page.locator(".widget-frame").count(), 0, "Widgets require an explicit Run click");
+  await page.getByRole("button", { name: "Run widget", exact: true }).click();
+  const widget = page.frameLocator(".widget-frame");
+  await widget.getByRole("button", { name: "Add one" }).click();
+  assert.equal(await widget.locator("#count").textContent(), "1");
+  assert.equal(companion.state.mode, "reading");
+  assert.equal(companion.state.tools.length, 0, "A widget does not need Pi tools");
+  const widgetExportEvent = page.waitForEvent("download"); await page.locator("#export-chat").click();
+  const widgetExport = await widgetExportEvent;
+  const widgetExportPath = resolve(workspace, "widget-chat.md");
+  await widgetExport.saveAs(widgetExportPath);
+  assert.match(await readFile(widgetExportPath, "utf8"), /\`\`\`widget Counter demo/);
+  await page.reload(); await ready();
+  assert.equal(await page.locator(".widget").count(), 1);
+  assert.equal(await page.locator(".widget-frame").count(), 0, "Refresh must not rerun code");
+  results.realPiHtmlWidgetAndSourceExport = true;
   assert.deepEqual(unexpectedRequests, []);
   assert.deepEqual(errors, []); results.noBrowserErrors = true;
   results.passed = true;

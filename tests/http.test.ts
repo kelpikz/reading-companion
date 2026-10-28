@@ -7,6 +7,7 @@ import { request as httpRequest } from "node:http";
 import { createApp } from "../server/http.js";
 import { fixture } from "./helpers.js";
 import { pastedSource } from "../server/source.js";
+import { widgetPath } from "../shared/widgets.js";
 
 async function host(options: Parameters<typeof createApp>[3] = {}) {
   const f = await fixture();
@@ -40,7 +41,11 @@ test("bootstrap has security headers and static paths cannot escape the build di
   const h = await host();
   try {
     const response = await fetch(h.origin);
-    assert.match(response.headers.get("content-security-policy")!, /frame-ancestors 'none'/);
+    const policy = response.headers.get("content-security-policy")!;
+    assert.match(policy, /frame-ancestors 'none'/);
+    assert.ok(policy.includes(`frame-src ${h.origin}/widgets/;`));
+    assert.match(policy, /script-src 'self';/);
+    assert.doesNotMatch(policy, /unsafe-inline|unsafe-eval|frame-src 'self'/);
     assert.equal(response.headers.get("cache-control"), "no-store");
     assert.equal(response.headers.get("x-content-type-options"), "nosniff");
     assert.doesNotMatch(await response.text(), /__COMPANION_TOKEN__/);
@@ -81,6 +86,58 @@ test("authenticated SSE restores a full snapshot after refresh", async () => {
     await reader.cancel();
   } finally { abort.abort(); await h.close(); }
 });
+test("widgets serve only current completed assistant fences with an opaque-origin, network-restricted policy", async () => {
+  const h = await host();
+  try {
+    const source = '<button onclick="this.textContent=1">Count</button><script>window.widgetRan=1</script>';
+    const message = { id: "widget-message", role: "assistant" as const, status: "complete" as const,
+      text: `Private explanation.\n\n\`\`\`widget Counter\n${source}\n\`\`\`\n\n\`\`\`widget Second\n<p>Two</p>\n\`\`\`` };
+    h.companion.state.messages.push(message);
+    const path = widgetPath(h.companion.state.sessionId, message.id, 0);
+    const headers = { "Sec-Fetch-Dest": "iframe", "Sec-Fetch-Site": "same-origin" };
+    const response = await fetch(h.origin + path, { headers });
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get("content-type"), "text/html; charset=utf-8");
+    assert.equal(response.headers.get("cache-control"), "no-store");
+    assert.equal(response.headers.get("x-frame-options"), null);
+    assert.equal(response.headers.get("referrer-policy"), "no-referrer");
+    assert.equal(response.headers.get("x-dns-prefetch-control"), "off");
+    assert.match(response.headers.get("permissions-policy")!, /camera=\(\)/);
+    const policy = response.headers.get("content-security-policy")!;
+    for (const directive of ["default-src 'none'", "connect-src 'none'", "script-src 'unsafe-inline'", "style-src 'unsafe-inline'",
+      "img-src data:", "frame-src 'none'", "worker-src 'none'", "object-src 'none'", "base-uri 'none'", "form-action 'none'",
+      `frame-ancestors ${h.origin}`, "sandbox allow-scripts"]) assert.ok(policy.includes(directive), directive);
+    assert.doesNotMatch(policy, /allow-same-origin|allow-popups|unsafe-eval/);
+    const html = await response.text();
+    assert.ok(html.includes(source));
+    assert.ok(!html.includes("Private explanation."));
+    assert.ok(!html.includes(h.headers["X-Companion-Token"]));
+    const second = await fetch(h.origin + widgetPath(h.companion.state.sessionId, message.id, 1), { headers });
+    assert.equal(second.status, 200);
+    assert.match(await second.text(), /<p>Two<\/p>/);
+    for (const bad of [path + "/extra", path + ".html", path.slice(0, -1) + "01", path.slice(0, -1) + "4",
+      widgetPath("old-session", message.id, 0), widgetPath(h.companion.state.sessionId, "unknown", 0)]) {
+      assert.equal((await fetch(h.origin + bad, { headers })).status, 404, bad);
+    }
+    assert.equal((await fetch(h.origin + path)).status, 403, "Direct navigation/fetch is not a preview");
+    assert.equal((await fetch(h.origin + path, { headers: { ...headers, Origin: "null" } })).status, 403);
+    assert.equal((await fetch(h.origin + path, { headers: { ...headers, "Sec-Fetch-Site": "cross-site" } })).status, 403);
+    assert.equal((await fetch(h.origin + path, { headers: { ...headers, "Sec-Fetch-Dest": "document" } })).status, 403);
+    assert.equal((await fetch(h.origin + path, { method: "POST", headers })).status, 405);
+    for (const status of ["streaming", "aborted", "error"] as const) {
+      h.companion.state.messages[0] = { ...message, status };
+      assert.equal((await fetch(h.origin + path, { headers })).status, 404, status);
+    }
+    h.companion.state.messages[0] = { ...message, role: "user" };
+    assert.equal((await fetch(h.origin + path, { headers })).status, 404);
+    h.companion.state.messages[0] = { ...message, text: "\`\`\`html\n" + source + "\n\`\`\`" };
+    assert.equal((await fetch(h.origin + path, { headers })).status, 404);
+    h.companion.state.messages[0] = message;
+    await h.companion.restart("reading");
+    assert.equal((await fetch(h.origin + path, { headers })).status, 404, "A new chat revokes old widget URLs");
+  } finally { await h.close(); }
+});
+
 test("media serves only the current article's images, sandboxed, through the image fetcher", async () => {
   const requested: string[] = [];
   const h = await host({ fetchImage: async url => {
