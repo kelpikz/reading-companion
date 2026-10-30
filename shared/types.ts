@@ -45,6 +45,13 @@ export interface ToolActivity {
   after: number;
 }
 export interface ModelChoice { provider: string; id: string; name: string; reasoning?: boolean; contextWindow?: number }
+/** A quiz skill action. Each one has a section in skills/quiz.md. */
+export type QuizAction = "start" | "more" | "deeper" | "explain";
+/** The user's answers to a finished quiz widget, as option text. Pi gets them as data, not as instructions. */
+export interface QuizResults {
+  title: string;
+  questions: { question: string; answer: string; picked: string; right: boolean; section?: string }[];
+}
 export interface AppState {
   sessionId: string;
   mode: Mode;

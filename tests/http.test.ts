@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { request as httpRequest } from "node:http";
 import { createApp } from "../server/http.js";
-import { fixture } from "./helpers.js";
+import { fixture, waitFor } from "./helpers.js";
 import { pastedSource } from "../server/source.js";
 import { widgetPath } from "../shared/widgets.js";
 
@@ -91,7 +91,8 @@ test("widgets serve only current completed assistant fences with an opaque-origi
   try {
     const source = '<button onclick="this.textContent=1">Count</button><script>window.widgetRan=1</script>';
     const message = { id: "widget-message", role: "assistant" as const, status: "complete" as const,
-      text: `Private explanation.\n\n\`\`\`widget Counter\n${source}\n\`\`\`\n\n\`\`\`widget Second\n<p>Two</p>\n\`\`\`` };
+      text: `Private explanation.\n\n\`\`\`chart\n{"title":"Built-in data","labels":["A"],"series":[{"values":[1]}]}\n\`\`\`\n\n`
+        + `\`\`\`widget Counter\n${source}\n\`\`\`\n\n\`\`\`widget Second\n<p>Two</p>\n\`\`\`` };
     h.companion.state.messages.push(message);
     const path = widgetPath(h.companion.state.sessionId, message.id, 0);
     const headers = { "Sec-Fetch-Dest": "iframe", "Sec-Fetch-Site": "same-origin" };
@@ -110,12 +111,14 @@ test("widgets serve only current completed assistant fences with an opaque-origi
     assert.doesNotMatch(policy, /allow-same-origin|allow-popups|unsafe-eval/);
     const html = await response.text();
     assert.ok(html.includes(source));
+    assert.match(html, /parent\.postMessage\(\{ widgetHeight: [^}]+\}, "\*"\)/, "The frame tells the app only its content height");
     assert.ok(!html.includes("Private explanation."));
+    assert.ok(!html.includes("Built-in data"), "Built-in widgets are app-drawn data, never served as documents");
     assert.ok(!html.includes(h.headers["X-Companion-Token"]));
     const second = await fetch(h.origin + widgetPath(h.companion.state.sessionId, message.id, 1), { headers });
     assert.equal(second.status, 200);
     assert.match(await second.text(), /<p>Two<\/p>/);
-    for (const bad of [path + "/extra", path + ".html", path.slice(0, -1) + "01", path.slice(0, -1) + "4",
+    for (const bad of [path + "/extra", path + ".html", path.slice(0, -1) + "01", path.slice(0, -1) + "2", path.slice(0, -1) + "4",
       widgetPath("old-session", message.id, 0), widgetPath(h.companion.state.sessionId, "unknown", 0)]) {
       assert.equal((await fetch(h.origin + bad, { headers })).status, 404, bad);
     }
@@ -159,5 +162,30 @@ test("media serves only the current article's images, sandboxed, through the ima
     }
     assert.equal((await fetch(`${h.origin}/media/${source.id}/0`, { headers: { "Sec-Fetch-Site": "cross-site" } })).status, 403);
     assert.deepEqual(requested, ["https://example.org/a.png", "https://example.org/broken.png"]);
+  } finally { await h.close(); }
+});
+test("/quiz and the quiz buttons run the editable quiz skill with checked answers", async () => {
+  const h = await host();
+  try {
+    const post = (path: string, body: unknown) => fetch(h.origin + path, { method: "POST", headers: h.headers, body: JSON.stringify(body) });
+    const messages = () => h.companion.state.messages;
+    h.companion.quizFile = resolve(h.companion.workspace, "quiz.md");
+    await writeFile(h.companion.quizFile, "## Start\ninspect context\n\n## Deeper\ninspect context\n");
+    assert.equal((await post("/api/chat", { message: "/quiz", quote: "A passage" })).status, 200);
+    await waitFor(() => !h.companion.state.busy);
+    assert.equal(messages()[0].text, "/quiz");
+    assert.deepEqual(JSON.parse(messages()[1].text), { request: "inspect context", selection: "A passage" });
+    const results = { title: "Check", questions: [{ question: "Q?", answer: "A", picked: "B", right: false, section: "#article-x-section-1" }] };
+    for (const body of [{ action: "start", results }, { action: "deeper" }, { action: "deeper", results: { title: "Check", questions: [] } },
+      { action: "deeper", results: { title: "Check", questions: [{ ...results.questions[0], right: "no" }] } }]) {
+      assert.equal((await post("/api/quiz", body)).status, 400, JSON.stringify(body));
+    }
+    assert.equal((await post("/api/quiz", { action: "deeper", results })).status, 200);
+    await waitFor(() => !h.companion.state.busy);
+    assert.equal(messages()[2].text, "Go deeper");
+    assert.deepEqual(JSON.parse(messages()[3].text), { request: "inspect context", quiz: results });
+    assert.equal((await post("/api/chat", { message: "/quizzes" })).status, 200);
+    await waitFor(() => !h.companion.state.busy);
+    assert.equal(messages()[4].text, "/quizzes", "Only /quiz runs the skill");
   } finally { await h.close(); }
 });

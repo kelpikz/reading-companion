@@ -5,10 +5,11 @@ import { createServer } from "node:http";
 import { resolve } from "node:path";
 import { chromium, type Browser } from "playwright-core";
 import { createApp } from "../server/http.js";
+import { pastedSource } from "../server/source.js";
 import type { ChatMessage } from "../shared/types.js";
 import { widgetPath } from "../shared/widgets.js";
 import { fixture, waitFor } from "../tests/helpers.js";
-import { WIDGET_REPLY, WIDGET_SOURCE } from "../tests/fixtures/widgets.js";
+import { BUILTIN_REPLY, CHART, FLASHCARDS, QUIZ, STEPS, WIDGET_REPLY, WIDGET_SOURCE } from "../tests/fixtures/widgets.js";
 
 const candidates = [process.env.PI_COMPANION_BROWSER,
   "C:/Program Files/BraveSoftware/Brave-Browser/Application/brave.exe",
@@ -27,6 +28,7 @@ const sink = createServer((request, response) => { sinkRequests.push(request.url
 await new Promise<void>(resolve => sink.listen(0, "127.0.0.1", resolve));
 const sinkOrigin = `http://127.0.0.1:${(sink.address() as { port: number }).port}`;
 app.server.on("request", request => appRequests.push(request.url ?? ""));
+const block = (name: string, value: unknown) => "```" + name + "\n" + JSON.stringify(value) + "\n```";
 let browser: Browser | undefined;
 try {
   const origin = await app.listen(0);
@@ -43,21 +45,27 @@ try {
     await page.goto(origin); await ready();
     return widgetPath(f.companion.state.sessionId, message.id, 0);
   };
+  const noCodeView = async () => {
+    assert.equal(await page.getByRole("button", { name: /^(Code|Preview|Run widget)$/ }).count(), 0, "Widgets have no code view or run step");
+    assert.equal(await page.locator(".message-body pre").count(), 0, "Widget source is not shown");
+  };
 
+  // Custom HTML widgets start on their own when the reply is complete.
   await show(WIDGET_REPLY);
   assert.equal(await page.locator(".widget").count(), 1);
-  assert.equal(await page.locator("iframe").count(), 0, "Generated scripts must not run automatically");
-  await page.getByRole("button", { name: "Code", exact: true }).click();
-  assert.equal(await page.locator(".widget-code").textContent(), WIDGET_SOURCE);
-  assert.equal(await page.locator(".widget-code script, .message-body > script").count(), 0);
-  await page.getByRole("button", { name: "Preview", exact: true }).click();
-  await page.getByRole("button", { name: "Run widget", exact: true }).click();
+  await noCodeView();
   const frame = page.frameLocator(".widget-frame");
   await frame.getByRole("button", { name: "Add one" }).click();
   assert.equal(await frame.locator("#count").textContent(), "1");
   await frame.getByRole("slider").focus(); await frame.getByRole("slider").press("ArrowRight");
   assert.equal(await frame.locator("#value").textContent(), "3");
   assert.equal(await page.locator(".widget-frame").getAttribute("sandbox"), "allow-scripts");
+  // The frame grows to fit its content, so the widget needs no scrollbar of its own.
+  await page.waitForFunction(() => document.querySelector<HTMLIFrameElement>(".widget-frame")?.style.height !== "");
+  assert.equal(await frame.locator("html").evaluate(node => node.scrollHeight <= innerHeight), true);
+  // The style kit gives custom widgets the app's theme.
+  assert.equal(await frame.locator("body").evaluate(node => getComputedStyle(node).color), "rgb(27, 27, 25)");
+  assert.match(await frame.getByRole("button", { name: "Add one" }).evaluate(node => getComputedStyle(node).backgroundColor), /^rgb\((91, 91, 214|77, 77, 196)\)$/, "Accent, or accent hover");
   const isolation = await frame.locator("body").evaluate(() => {
     let parentBlocked = false, storageBlocked = false;
     try { void parent.document; } catch { parentBlocked = true; }
@@ -65,36 +73,36 @@ try {
     return { parentBlocked, storageBlocked, origin: self.origin };
   });
   assert.deepEqual(isolation, { parentBlocked: true, storageBlocked: true, origin: "null" });
-  await page.getByRole("button", { name: "Code", exact: true }).click();
-  await page.getByRole("button", { name: "Preview", exact: true }).click();
-  assert.equal(await frame.locator("#count").textContent(), "1", "Changing views preserves the live preview");
+  await page.getByRole("button", { name: "Collapse widget" }).click();
+  assert.equal(await page.locator(".widget-frame").isVisible(), false);
+  await page.getByRole("button", { name: "Expand widget" }).click();
+  assert.equal(await frame.locator("#count").textContent(), "1", "Collapsing keeps the running widget");
+  await page.locator(".widget-title").click();
+  assert.equal(await page.locator(".widget-frame").isVisible(), false, "The title bar also collapses the widget");
+  await page.locator(".widget-title").click();
   await page.locator("#question").fill("A follow-up question"); await page.locator("#send").click();
   await waitFor(() => f.companion.state.messages.length === 4 && !f.companion.state.busy); await ready();
   assert.equal(await frame.locator("#count").textContent(), "1", "SSE snapshots and new replies do not restart widgets");
-  await page.getByRole("button", { name: "Restart", exact: true }).click();
+  await page.getByRole("button", { name: "Restart widget", exact: true }).click();
   await page.waitForFunction(() => document.querySelectorAll(".widget-frame").length === 1);
   assert.equal(await frame.locator("#count").textContent(), "0");
-  await page.getByRole("button", { name: "Stop widget", exact: true }).click();
-  assert.equal(await page.locator("iframe").count(), 0);
-  await page.getByRole("button", { name: "Run widget", exact: true }).click();
-  await frame.locator("#count").waitFor();
+  await frame.getByRole("button", { name: "Add one" }).click();
   await page.locator(".widget").scrollIntoViewIfNeeded();
   await page.screenshot({ path: "evidence/10-widget-desktop.png" });
   await page.emulateMedia({ colorScheme: "dark" });
+  assert.equal(await frame.locator("body").evaluate(node => getComputedStyle(node).color), "rgb(237, 237, 239)", "The kit follows the dark theme");
   await page.screenshot({ path: "evidence/11-widget-dark.png" });
   await page.emulateMedia({ colorScheme: "light" });
   await page.setViewportSize({ width: 390, height: 844 });
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
-  await frame.getByRole("button", { name: "Add one" }).click();
   await page.locator(".widget").evaluate(node => node.scrollIntoView({ block: "start" }));
   await page.screenshot({ path: "evidence/12-widget-mobile.png" });
   await page.reload(); await ready();
-  assert.equal(await page.locator(".widget").count(), 1);
-  assert.equal(await page.locator("iframe").count(), 0, "Refresh restores source, not running code or widget state");
-  results.interactionViewsRestartStopRefreshAndThemes = true;
+  assert.equal(await frame.locator("#count").textContent(), "0", "Refresh starts the widget again, without old state");
+  results.autoRunCollapseRestartRefreshAndThemes = true;
 
+  await page.setViewportSize({ width: 1440, height: 1000 });
   await show(WIDGET_REPLY + "\n\n```widget Second counter\n" + WIDGET_SOURCE + "\n```");
-  for (const card of await page.locator(".widget").all()) await card.getByRole("button", { name: "Run widget" }).click();
   await page.frameLocator(".widget-frame").nth(0).getByRole("button", { name: "Add one" }).click();
   assert.equal(await page.frameLocator(".widget-frame").nth(0).locator("#count").textContent(), "1");
   assert.equal(await page.frameLocator(".widget-frame").nth(1).locator("#count").textContent(), "0");
@@ -102,15 +110,83 @@ try {
 
   for (const status of ["streaming", "aborted", "error"] as const) {
     await show(WIDGET_REPLY, status);
-    assert.equal(await page.getByRole("button", { name: "Run widget" }).isDisabled(), true, status);
-    assert.equal(await page.locator("iframe").count(), 0);
+    assert.equal(await page.locator("iframe").count(), 0, status);
+    assert.equal(await page.locator(".widget-note").count(), 1, status);
   }
+  await show("Here it is.\n\n```widget\n<button>Unclosed</button>", "streaming");
+  assert.equal(await page.locator(".widget-pending").textContent(), "Pi is writing a widget…");
+  await noCodeView();
+  await show("Here it is.\n\n```quiz\n{\"questions\":[", "streaming");
+  assert.equal(await page.locator(".widget-pending").textContent(), "Pi is making the quiz…");
   await show("```widget\n<button>Unclosed</button>");
-  assert.equal(await page.locator(".widget, iframe").count(), 0);
+  assert.equal(await page.locator(".widget, .widget-pending, iframe").count(), 0, "An unfinished fence in a finished reply stays code");
+  assert.equal(await page.locator(".message-body pre").count(), 1);
   await show('<script>window.compromised=1</script>\n\n```html\n<button onclick="window.compromised=1">Code only</button>\n```\n\n> ```widget\n> <button>Quoted</button>\n> ```');
   assert.equal(await page.locator(".widget, iframe, .message-body script, .message-body button").count(), 0);
   assert.equal(await page.evaluate(() => (window as any).compromised), undefined);
-  results.incompleteRepliesAndOrdinaryHtmlStayInert = true;
+  results.pendingIncompleteRepliesAndOrdinaryHtmlStayInert = true;
+
+  // Built-in widgets: Pi sends data, the app draws it. Nothing runs in a frame.
+  await page.setViewportSize({ width: 1440, height: 2400 });
+  await show(BUILTIN_REPLY);
+  assert.equal(await page.locator(".widget").count(), 4);
+  assert.equal(await page.locator("iframe").count(), 0, "Built-in widgets are app components, not frames");
+  await noCodeView();
+  const widget = (name: string) => page.locator(".widget").filter({ has: page.locator(name) });
+  const chart = widget(".chart");
+  assert.equal(await chart.locator(".widget-title").textContent(), CHART.title);
+  assert.equal(await chart.locator(".chart-plot svg path").count(), CHART.labels.length * CHART.series.length, "One bar for each value");
+  assert.deepEqual(await chart.locator(".chart-legend li").allTextContents(), ["Print", "Online"]);
+  await chart.locator(".chart-plot svg").hover({ position: { x: 60, y: 120 } });
+  assert.match((await chart.locator(".chart-tip").textContent())!, /^2021.*70%.*Print.*30%.*Online$/);
+  await page.mouse.move(0, 0);
+  assert.equal(await chart.locator(".chart-tip").count(), 0);
+  await chart.locator(".chart-plot").focus(); await page.keyboard.press("ArrowLeft");
+  assert.equal(await chart.locator(".chart-plot .sr-only").textContent(), "2024: Print 32%, Online 68%");
+  await chart.getByText("Show data").click();
+  assert.equal(await chart.locator("tbody tr").count(), CHART.labels.length);
+  assert.equal(await chart.locator(".chart-note").textContent(), CHART.note);
+  assert.equal(await widget(".steps").locator("li").count(), STEPS.steps.length);
+  const quiz = widget(".quiz");
+  await quiz.getByRole("button", { name: "Print", exact: true }).click();
+  assert.equal(await quiz.locator(".quiz-feedback").first().textContent(), `Not quite. The answer is “Online”. ${QUIZ.questions[0].explanation}`);
+  await quiz.getByRole("button", { name: "Online", exact: true }).click({ force: true });
+  assert.equal(await quiz.locator(".quiz-feedback").count(), 1, "An answered question is locked");
+  await quiz.getByRole("button", { name: "2023", exact: true }).click();
+  assert.equal(await quiz.locator(".quiz-footer span").textContent(), `You got 1 of ${QUIZ.questions.length} right.`);
+  await quiz.getByRole("button", { name: "Collapse widget" }).click();
+  await quiz.getByRole("button", { name: "Expand widget" }).click();
+  assert.equal(await quiz.locator(".quiz-feedback").count(), 2, "Collapsing keeps the answers");
+  const cards = widget(".flashcards");
+  assert.equal(await cards.locator(".flashcard-text").textContent(), FLASHCARDS.cards[0].front);
+  await cards.locator(".flashcard").click();
+  assert.equal(await cards.locator(".flashcard-text").textContent(), FLASHCARDS.cards[0].back);
+  await cards.getByRole("button", { name: "Next card" }).click();
+  assert.equal(await cards.locator(".flashcard-text").textContent(), FLASHCARDS.cards[1].front, "A new card starts on its front");
+  await page.screenshot({ path: "evidence/13-builtin-widgets.png" });
+  await page.emulateMedia({ colorScheme: "dark" });
+  await page.screenshot({ path: "evidence/14-builtin-dark.png" });
+  await page.emulateMedia({ colorScheme: "light" });
+  await page.setViewportSize({ width: 390, height: 2400 });
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+  await page.screenshot({ path: "evidence/15-builtin-mobile.png" });
+  await quiz.getByRole("button", { name: "Try again" }).click();
+  assert.equal(await quiz.locator(".quiz-feedback").count(), 0);
+  results.builtinChartStepsQuizFlashcards = true;
+
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await show(block("chart", { title: "Trend", type: "line", labels: ["A", "B", "C"], series: [{ name: "One", values: [1, 3, 2] }, { name: "Two", values: [2, 1, 4] }] }));
+  assert.equal(await page.locator(".chart-line").count(), 2);
+  assert.equal(await page.locator(".chart-dot").count(), 6);
+  const hostile = "<img src=x onerror=\"window.compromised=1\">";
+  await show(block("steps", { title: hostile, steps: [{ title: hostile, detail: "[link](javascript:alert(1)) **bold**" }] }));
+  assert.equal(await page.locator(".widget-title").textContent(), hostile, "Built-in text is shown as text");
+  assert.equal(await page.locator(".message-body img, .message-body a, .message-body strong:not(.widget-title)").count(), 1, "Only the step title's own <strong>");
+  await show(block("chart", { labels: ["A", "B"], series: [{ values: [1] }] }) + "\n\n```quiz\n{not json\n```");
+  assert.equal(await page.locator(".widget").count(), 0, "Invalid built-in data stays code");
+  assert.equal(await page.locator(".message-body pre").count(), 2);
+  assert.equal(await page.evaluate(() => (window as any).compromised), undefined);
+  results.lineChartPlainTextAndInvalidData = true;
 
   // A local HTTP sink proves prohibited requests do not reach a server, not just that CORS hides responses.
   const malicious = `<link rel="stylesheet" href="${sinkOrigin}/style.css">
@@ -139,9 +215,7 @@ try {
   parent.postMessage({ type: 'api', command: 'bash', text: 'ignore me' }, '*');
 })();
 </script>`;
-  await page.setViewportSize({ width: 1440, height: 1000 });
   const oldPath = await show("```widget Isolation test\n" + malicious + "\n```");
-  await page.getByRole("button", { name: "Run widget" }).click();
   await page.waitForFunction(() => document.querySelectorAll(".widget-frame").length === 1);
   const securityFrame = page.frameLocator(".widget-frame");
   await securityFrame.locator("#report").filter({ hasText: "beacon" }).waitFor();
@@ -153,7 +227,7 @@ try {
   await page.waitForTimeout(300);
   assert.deepEqual(sinkRequests, []);
   assert.deepEqual(appRequests.slice(before), [], "Widget actions must not reach the app's endpoints");
-  await page.getByRole("button", { name: "Restart", exact: true }).click();
+  await page.getByRole("button", { name: "Restart widget", exact: true }).click();
   await securityFrame.locator("#report").filter({ hasText: "beacon" }).waitFor();
   const beforeNavigation = appRequests.length;
   await securityFrame.locator("#app").click();
@@ -167,6 +241,23 @@ try {
   assert.deepEqual(sinkRequests, []);
   results.blockedParentStorageEvalNetworkResourcesFormsPopupsAndNavigation = true;
   results.expectedPolicyViolations = policyMessages.length;
+
+  // The quiz skill: a wrong answer links to its article section, and the buttons under a finished quiz run skills/quiz.md.
+  const article = pastedSource("## Formats\n\nOnline grew every year.\n\n## Years\n\nOnline passed print in 2023.", "Reading formats");
+  await f.companion.setSource(article, f.companion.state.sessionId);
+  await show(block("quiz", { title: "Formats", questions: [{ question: "Which format grew?", options: ["Print", "Online"], answer: 1, section: `#${article.sections[0].id}` }] }));
+  const skillQuiz = page.locator(".quiz");
+  assert.equal(await skillQuiz.locator(".quiz-next").count(), 0, "The next steps show when every question is answered");
+  await skillQuiz.getByRole("button", { name: "Print", exact: true }).click();
+  assert.deepEqual(await skillQuiz.locator(".quiz-next button").allTextContents(), ["More on what I missed", "Explain my mistakes", "Go deeper"]);
+  await skillQuiz.getByRole("button", { name: "Read “Formats”" }).click();
+  await page.locator(`[id="${article.sections[0].id}"].reference-highlight`).waitFor();
+  await page.screenshot({ path: "evidence/16-quiz-skill.png" });
+  await skillQuiz.getByRole("button", { name: "Explain my mistakes" }).click();
+  await page.locator(".message.user", { hasText: "Explain what I got wrong" }).waitFor();
+  await ready();
+  assert.equal(f.companion.state.messages.at(-2)?.text, "Explain what I got wrong");
+  results.quizSkillSectionLinkAndNextSteps = true;
 
   await f.companion.restart("reading"); await page.reload(); await ready();
   assert.equal(await page.locator(".widget, iframe").count(), 0);

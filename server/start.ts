@@ -12,7 +12,7 @@ if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error("PI_COM
 
 try {
   const launch = await findPi();
-  const companion = new Companion(launch, workspace);
+  const companion = new Companion(launch, workspace, resolve(root, "skills/quiz.md"));
   const app = createApp(companion, resolve(root, "dist"), await buildId(resolve(root, "dist-server")));
   const origin = await app.listen(port);
   console.log(`\n  π  Pi Companion\n\n  Open ${origin} in Chrome or Brave.\n  Reading mode · ephemeral chats · tools off\n  Press Ctrl+C to stop.\n`);

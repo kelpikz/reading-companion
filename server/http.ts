@@ -6,6 +6,7 @@ import type { Companion } from "./controller.js";
 import { fetchImage, fetchSource, pastedSource } from "./source.js";
 import { chatContent, MAX_WIDGETS, WIDGET_PATH } from "../shared/widgets.js";
 import { widgetDocument, widgetPolicy, WIDGET_PERMISSIONS } from "./widgets.js";
+import { quizResults } from "./quiz.js";
 
 const MIME: Record<string, string> = { ".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8",
   ".css": "text/css; charset=utf-8", ".svg": "image/svg+xml", ".png": "image/png", ".ico": "image/x-icon" };
@@ -70,8 +71,8 @@ export function createApp(companion: Companion, dist: string, build = "", option
         const message = match && match[1] === companion.state.sessionId && Number(match[3]) < MAX_WIDGETS
           ? companion.state.messages.find(message => message.id === match[2] && message.role === "assistant" && message.status === "complete")
           : undefined;
-        const part = message && chatContent(message.text).parts.find(part => part.kind === "widget" && part.index === Number(match![3]));
-        if (!part || part.kind !== "widget") { json(response, 404, { error: "This widget is no longer available." }); return; }
+        const part = message && chatContent(message.text).parts.find(part => part.kind === "html" && part.index === Number(match![3]));
+        if (!part || part.kind !== "html") { json(response, 404, { error: "This widget is no longer available." }); return; }
         response.removeHeader("X-Frame-Options");
         response.writeHead(200, { "Content-Type": "text/html; charset=utf-8",
           "Content-Security-Policy": widgetPolicy(origin), "Permissions-Policy": WIDGET_PERMISSIONS,
@@ -126,8 +127,16 @@ export function createApp(companion: Companion, dist: string, build = "", option
         if (request.headers.origin !== origin) { json(response, 403, { error: "An exact Origin header is required." }); return; }
         const data = await body(request);
         switch (url.pathname) {
-          case "/api/chat":
-            await companion.prompt(string(data.message, "question", 16_000), string(data.quote, "quote", 20_000, true));
+          case "/api/chat": {
+            const message = string(data.message, "question", 16_000), quote = string(data.quote, "quote", 20_000, true);
+            // "/quiz" runs the quiz skill; the text after it is the focus.
+            const quiz = /^\/quiz(?:\s+([\s\S]*))?$/.exec(message.trim());
+            await (quiz ? companion.quiz("start", { focus: quiz[1], quote }) : companion.prompt(message, quote));
+            json(response, 200, { ok: true }); return;
+          }
+          case "/api/quiz":
+            if (data.action !== "more" && data.action !== "deeper" && data.action !== "explain") throw new Error("Choose a quiz action.");
+            await companion.quiz(data.action, { results: quizResults(data.results) });
             json(response, 200, { ok: true }); return;
           case "/api/stop":
             await companion.abort(); json(response, 200, { ok: true }); return;

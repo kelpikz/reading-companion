@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "preact/hooks";
-import type { AppState, Mode, ModelChoice, Source } from "../shared/types";
+import type { AppState, Mode, ModelChoice, QuizAction, QuizResults, Source } from "../shared/types";
 import { api, stream, type Link } from "./api";
 import { Chat } from "./chat";
 import { exportMarkdown } from "./export";
@@ -134,6 +134,14 @@ export function App() {
       setToast(errorText(error));
     } finally { setPending(false); questionRef.current?.focus(); }
   }
+  /** A button under a finished quiz: more questions, an explanation, or harder questions. */
+  async function quiz(action: QuizAction, results: QuizResults) {
+    if (!idle) return;
+    setPending(true);
+    try { await api("/api/quiz", { action, results }); }
+    catch (error) { setToast(errorText(error)); }
+    finally { setPending(false); }
+  }
   async function stop() {
     try { await api("/api/stop", {}); } catch (error) { setToast(errorText(error)); }
   }
@@ -239,7 +247,7 @@ export function App() {
           <Chat state={state} idle={idle} tools={tools} panelVisible={showPanel && wide} models={modelList}
             question={question} setQuestion={setQuestion} quote={quote} setQuote={setQuote}
             quoteOpen={quoteOpen} setQuoteOpen={setQuoteOpen} questionRef={questionRef}
-            onSend={send} onStop={stop} onModel={selectModel} onThinking={selectThinking} onOpenPanel={openPanel} onReference={goToSection} />
+            onSend={send} onQuiz={quiz} onStop={stop} onModel={selectModel} onThinking={selectThinking} onOpenPanel={openPanel} onReference={goToSection} />
         ) : (
           <div class="loading"><Spinner /> Connecting to Pi…</div>
         )}

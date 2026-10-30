@@ -12,7 +12,9 @@ test("reading disables tools/resources and tools use an explicit allowlist", () 
   for (const args of [reading, tools]) {
     const prompt = args[args.indexOf("--system-prompt") + 1];
     assert.match(prompt, /top-level fenced code block/);
-    assert.match(prompt, /Run widget after the reply finishes/);
+    assert.match(prompt, /Prefer a built-in widget/);
+    for (const name of ["chart", "steps", "quiz", "flashcards"]) assert.match(prompt, new RegExp(`^- ${name}: `, "m"));
+    assert.match(prompt, /runs a custom widget automatically when the reply finishes/);
     assert.match(prompt, /no access to the parent app/);
     assert.match(prompt, /untrusted reference/);
   }

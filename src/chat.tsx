@@ -1,12 +1,13 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "preact/hooks";
 import type { RefObject, VNode } from "preact";
-import type { AppState, ChatMessage, ModelChoice, SourceSection, ToolActivity } from "../shared/types";
+import type { AppState, ChatMessage, ModelChoice, QuizAction, QuizResults, SourceSection, ToolActivity } from "../shared/types";
 import { referencedSection } from "../shared/sections";
 import { chatContent } from "../shared/widgets";
 import { Icon, Spinner } from "./icons";
 import { renderMarkdown } from "./markdown";
 import { Picker } from "./picker";
-import { Widget } from "./widget";
+import { Builtin, HtmlWidget, PendingWidget } from "./widget";
+import { WidgetContext } from "./widgets/context";
 
 const EFFORT: Record<string, { label: string; hint: string }> = {
   off: { label: "Off", hint: "No extra thinking. Fastest." },
@@ -25,6 +26,8 @@ const SUGGESTIONS = [
   { label: "Explain it simply", hint: "Plain words and an example", prompt: "Explain the main idea of this article in plain language, with a simple example." },
   { label: "Find the argument", hint: "The claim and its evidence", prompt: "What is the main argument of this article, and what evidence supports it?" },
   { label: "Push back", hint: "Weak points and other views", prompt: "What are the strongest counterarguments, weak points, or missing perspectives in this article?" },
+  // The quiz skill (skills/quiz.md). The server runs it for messages that start with /quiz.
+  { label: "Quiz me", hint: "Test what you understood", prompt: "/quiz" },
 ];
 
 interface ChatProps {
@@ -41,6 +44,7 @@ interface ChatProps {
   setQuoteOpen: (value: boolean) => void;
   questionRef: RefObject<HTMLTextAreaElement>;
   onSend: (text: string, passage: string, fromComposer: boolean) => void;
+  onQuiz: (action: QuizAction, results: QuizResults) => void;
   onStop: () => void;
   onModel: (value: string) => void;
   onThinking: (level: string) => void;
@@ -72,6 +76,8 @@ export function Chat(props: ChatProps) {
     stick.current = true;
     props.onSend(text, passage, fromComposer);
   }
+  const widgetActions = { sections: sections ?? [], idle: props.idle, onReference: props.onReference,
+    onQuiz: (action: QuizAction, results: QuizResults) => { stick.current = true; props.onQuiz(action, results); } };
 
   const count = state.messages.length;
   const toolsAt = (index: number) => state.tools.filter(tool => Math.min(tool.after ?? count, count) === index);
@@ -94,15 +100,17 @@ export function Chat(props: ChatProps) {
     <section class="chat" aria-label="Conversation">
       <div ref={scroller} class="scroller" onScroll={onScroll}>
         {items.length ? (
-          <div id="messages" class="thread" role="list" aria-label="Messages">
-            {items}
-            {waiting && (
-              <div class="waiting" role="listitem">
-                <span class="avatar" aria-hidden="true">π</span>
-                <span class="shimmer">{state.activity}…</span>
-              </div>
-            )}
-          </div>
+          <WidgetContext.Provider value={widgetActions}>
+            <div id="messages" class="thread" role="list" aria-label="Messages">
+              {items}
+              {waiting && (
+                <div class="waiting" role="listitem">
+                  <span class="avatar" aria-hidden="true">π</span>
+                  <span class="shimmer">{state.activity}…</span>
+                </div>
+              )}
+            </div>
+          </WidgetContext.Provider>
         ) : (
           <Empty state={state} idle={props.idle} panelVisible={props.panelVisible} onOpenPanel={props.onOpenPanel}
             onSuggest={prompt => send(prompt, "", false)} />
@@ -164,11 +172,13 @@ function UserMessage({ message }: { message: ChatMessage }) {
   const [expanded, setExpanded] = useState(false);
   return (
     <div class="message user" role="listitem">
-      {message.quote && (
-        <blockquote class={"message-quote" + (expanded ? " expanded" : "")} title={expanded ? "" : "Show the full passage"}
-          onClick={() => setExpanded(!expanded)}>{message.quote}</blockquote>
-      )}
-      <div class="message-body">{message.text}</div>
+      <div class="bubble">
+        {message.quote && (
+          <blockquote class={"message-quote" + (expanded ? " expanded" : "")} title={expanded ? "" : "Show the full passage"}
+            onClick={() => setExpanded(!expanded)}>{message.quote}</blockquote>
+        )}
+        <div class="message-body">{message.text}</div>
+      </div>
       {message.status === "error" && <span class="tag error">Not sent</span>}
     </div>
   );
@@ -177,11 +187,13 @@ function UserMessage({ message }: { message: ChatMessage }) {
 function AssistantMessage({ message, sessionId, sections, onReference }: {
   message: ChatMessage; sessionId: string; sections?: readonly SourceSection[]; onReference: (sectionId: string) => void;
 }) {
+  const streaming = message.status === "streaming";
   const parts = useMemo(() => {
     const content = chatContent(message.text);
-    return content.parts.map(part => part.kind === "markdown"
-      ? { ...part, html: renderMarkdown(part.text, sections, content.links) } : part);
-  }, [message.text, sections]);
+    // An open widget fence shows a placeholder while Pi writes it. In a finished reply it stays plain code.
+    return content.parts.map(part => part.kind === "markdown" || (part.kind === "pending" && !streaming)
+      ? { kind: "markdown" as const, html: renderMarkdown(part.text, sections, content.links) } : part);
+  }, [message.text, sections, streaming]);
   const [copied, setCopied] = useState(false);
   async function copy() {
     try { await navigator.clipboard.writeText(message.text); setCopied(true); setTimeout(() => setCopied(false), 1500); }
@@ -189,29 +201,28 @@ function AssistantMessage({ message, sessionId, sections, onReference }: {
   }
   return (
     <div class="message assistant" role="listitem" data-status={message.status}>
-      <span class="avatar" aria-hidden="true">π</span>
-      <div class="message-main">
-        <div class="message-body prose" onClick={event => {
-          const link = event.target instanceof Element ? event.target.closest("a") : null;
-          const section = referencedSection(link?.getAttribute("href") ?? "", sections ?? []);
-          if (section) { event.preventDefault(); onReference(section.id); }
-        }}>
-          {parts.map((part, index) => part.kind === "markdown"
-            ? <div key={"markdown-" + index} dangerouslySetInnerHTML={{ __html: part.html }} />
-            : <Widget key={"widget-" + part.index} part={part} sessionId={sessionId} messageId={message.id} status={message.status} />)}
-        </div>
-        {message.status !== "streaming" && (
-          <div class="message-actions">
-            {message.text && (
-              <button class="icon-btn small" aria-label={copied ? "Copied" : "Copy reply"} title={copied ? "Copied" : "Copy"} onClick={copy}>
-                <Icon name={copied ? "check" : "copy"} size={14} />
-              </button>
-            )}
-            {message.status === "aborted" && <span class="tag">Stopped</span>}
-            {message.status === "error" && <span class="tag error">Reply failed</span>}
-          </div>
-        )}
+      <div class="message-body prose" onClick={event => {
+        const link = event.target instanceof Element ? event.target.closest("a") : null;
+        const section = referencedSection(link?.getAttribute("href") ?? "", sections ?? []);
+        if (section) { event.preventDefault(); onReference(section.id); }
+      }}>
+        {parts.map((part, index) => part.kind === "markdown"
+          ? <div key={"markdown-" + index} dangerouslySetInnerHTML={{ __html: part.html }} />
+          : part.kind === "html" ? <HtmlWidget key={"html-" + part.index} part={part} sessionId={sessionId} messageId={message.id} status={message.status} />
+          : part.kind === "builtin" ? <Builtin key={"builtin-" + index} widget={part.widget} />
+          : <PendingWidget key="pending" name={part.name} />)}
       </div>
+      {message.status !== "streaming" && (
+        <div class="message-actions">
+          {message.text && (
+            <button class="icon-btn small" aria-label={copied ? "Copied" : "Copy reply"} title={copied ? "Copied" : "Copy"} onClick={copy}>
+              <Icon name={copied ? "check" : "copy"} size={14} />
+            </button>
+          )}
+          {message.status === "aborted" && <span class="tag">Stopped</span>}
+          {message.status === "error" && <span class="tag error">Reply failed</span>}
+        </div>
+      )}
     </div>
   );
 }
@@ -269,7 +280,7 @@ function Composer({ state, idle, tools, models, question, setQuestion, quote, se
   const levels = state.thinkingLevels ?? [];
   const canThink = levels.length > 1;
   const effortOptions = levels.map(level => ({ value: level, label: effortLabel(level), hint: EFFORT[level]?.hint }));
-  const placeholder = tools ? "Tell Pi what to do…" : state.source ? "Ask about the article…" : "Ask Pi anything…";
+  const placeholder = tools ? "Tell Pi what to do…" : state.source ? "Ask about the article, or type /quiz…" : "Ask Pi anything…";
   const note = tools ? "Tools act with your account's permissions. Chats are kept in memory only."
     : `What you share goes to ${state.model?.provider ?? "your model provider"}. Chats are kept in memory only.`;
 

@@ -297,8 +297,6 @@ try {
   await page.setViewportSize({ width: 1440, height: 1000 });
   await send("HTML_WIDGET");
   await page.locator(".widget").waitFor(); await ready();
-  assert.equal(await page.locator(".widget-frame").count(), 0, "Widgets require an explicit Run click");
-  await page.getByRole("button", { name: "Run widget", exact: true }).click();
   const widget = page.frameLocator(".widget-frame");
   await widget.getByRole("button", { name: "Add one" }).click();
   assert.equal(await widget.locator("#count").textContent(), "1");
@@ -311,8 +309,14 @@ try {
   assert.match(await readFile(widgetExportPath, "utf8"), /\`\`\`widget Counter demo/);
   await page.reload(); await ready();
   assert.equal(await page.locator(".widget").count(), 1);
-  assert.equal(await page.locator(".widget-frame").count(), 0, "Refresh must not rerun code");
+  assert.equal(await widget.locator("#count").textContent(), "0", "Refresh starts the widget again, without old state");
   results.realPiHtmlWidgetAndSourceExport = true;
+  await send("BUILTIN_WIDGETS");
+  await page.locator(".flashcards").waitFor(); await ready();
+  assert.equal(await page.locator(".widget").count(), 5);
+  assert.equal(await page.locator(".widget-frame").count(), 1, "Built-in widgets are drawn by the app, not run in frames");
+  assert.equal(await page.locator(".chart svg path").count(), 8);
+  results.realPiBuiltinWidgets = true;
   assert.deepEqual(unexpectedRequests, []);
   assert.deepEqual(errors, []); results.noBrowserErrors = true;
   results.passed = true;
