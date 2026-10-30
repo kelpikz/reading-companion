@@ -178,10 +178,9 @@ npm run check        # type check, unit and integration tests, build
 npm run test:widgets # widgets in a real browser, with a fake Pi
 npm run test:browser # the full app with the real Pi CLI and a local test model
 npm run test:pi      # the real Pi CLI with a local test model, no paid calls
-npm run media        # makes the README screenshots and GIFs (needs ffmpeg and ImageMagick)
 ```
 
-The tests, the code map and how the README media is made: [docs/development.md](docs/development.md).
+The tests and the code map: [docs/development.md](docs/development.md).
 
 ## License
 

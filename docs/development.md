@@ -18,12 +18,6 @@ npm run test:launcher
 - The verify scripts write reports and screenshots to `evidence/`. This folder is not committed.
 - The local deterministic model proves the integration, not the quality/latency or availability of a remote provider.
 
-## README media
-
-`npm run media` makes the screenshots and GIFs in `docs/media/`. Run `npm run build` first. It needs a Chromium browser, `ffmpeg` and ImageMagick (`magick`) on PATH.
-
-The script (`scripts/capture-media.ts`) uses the production UI, a sample article (`scripts/media/article.ts`) and a scripted stand-in for Pi (`scripts/media/demo-pi.mjs`) that streams fixed replies. No model is called, and no personal data shows in the images. GIFs come from the page's own screen recording at 1:1 scale, so the text stays sharp. Temporary frames go to `data/media/`.
-
 ## Code map
 
 - `src/`: browser UI (Preact + TSX) and styles. `app.tsx` is the frame and actions, `panel.tsx` is the article panel, `panel-divider.tsx` is the resizable split, `chat.tsx` is the conversation and message box, `style.css` holds the light/dark design tokens.
@@ -37,4 +31,4 @@ The script (`scripts/capture-media.ts`) uses the production UI, a sample article
 - `shared/article.ts`: sanitizer rules for article HTML, shared by the server and the browser.
 - `shared/types.ts`: browser/server state contract. `shared/sections.ts` defines safe article navigation targets and pasted-text section detection.
 - `docs/adr-0001-local-web-pi-rpc.md`: accepted architecture and trade-offs.
-- `tests/`, `scripts/`: automated verification, launchers, and the README media script.
+- `tests/`, `scripts/`: automated verification and launchers.
