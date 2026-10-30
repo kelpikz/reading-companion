@@ -11,7 +11,7 @@ import { widgetPath } from "../shared/widgets.js";
 
 async function host(options: Parameters<typeof createApp>[3] = {}) {
   const f = await fixture();
-  const dist = await mkdtemp(resolve(tmpdir(), "pi-companion-http-"));
+  const dist = await mkdtemp(resolve(tmpdir(), "reading-companion-http-"));
   await writeFile(resolve(dist, "index.html"), '<html><meta name="companion-token" content="__COMPANION_TOKEN__"></html>');
   const app = createApp(f.companion, dist, "", options);
   const origin = await app.listen(0);

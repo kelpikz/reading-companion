@@ -65,7 +65,7 @@ export async function localModel() {
   });
   await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
   const port = (server.address() as { port: number }).port;
-  const directory = await mkdtemp(resolve(tmpdir(), "pi-companion-provider-"));
+  const directory = await mkdtemp(resolve(tmpdir(), "reading-companion-provider-"));
   await writeFile(resolve(directory, "settings.json"), JSON.stringify({
     defaultProvider: "companion-fixture", defaultModel: "fixture-reader", defaultThinkingLevel: "off",
     cacheWarming: "off", retry: { enabled: false },

@@ -10,17 +10,17 @@ import { extractSource, pastedSource } from "../server/source.js";
 import { localModel } from "./local-model.js";
 
 await mkdir("evidence", { recursive: true });
-const candidates = [process.env.PI_COMPANION_BROWSER,
+const candidates = [process.env.READING_COMPANION_BROWSER,
   "C:/Program Files/BraveSoftware/Brave-Browser/Application/brave.exe",
   "C:/Program Files/Google/Chrome/Application/chrome.exe",
   "C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe",
   "/usr/bin/chromium", "/usr/bin/google-chrome", "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"].filter(Boolean) as string[];
 let executablePath = "";
 for (const candidate of candidates) { try { await access(candidate); executablePath = candidate; break; } catch {} }
-if (!executablePath) throw new Error("Set PI_COMPANION_BROWSER to a Chromium browser executable.");
+if (!executablePath) throw new Error("Set READING_COMPANION_BROWSER to a Chromium browser executable.");
 const results: Record<string, unknown> = { timestamp: new Date().toISOString(), browser: executablePath, usesRealPi: true, usesLocalTestModel: true };
 const provider = await localModel();
-const workspace = await mkdtemp(resolve(tmpdir(), "pi-companion-browser-"));
+const workspace = await mkdtemp(resolve(tmpdir(), "reading-companion-browser-"));
 const companion = new Companion(await findPi(), workspace);
 // A 1x1 PNG stands in for article images, so the test makes no outside requests.
 const pixel = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==", "base64");
@@ -41,7 +41,7 @@ try {
   const send = async (text: string) => { await ready(); await page.locator("#question").fill(text); await page.locator("#send").click(); };
   await page.goto(origin); await ready();
   await page.screenshot({ path: "evidence/01-welcome-desktop.png", fullPage: true });
-  assert.equal(await page.title(), "Pi · Reading companion"); results.launch = true;
+  assert.equal(await page.title(), "Reading Companion"); results.launch = true;
 
   const divider = page.getByRole("separator", { name: "Resize article panel" });
   const panelWidth = () => page.locator("#panel").evaluate(node => node.getBoundingClientRect().width);

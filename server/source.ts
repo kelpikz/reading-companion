@@ -68,7 +68,7 @@ function fetchBytes(target: Target, signal: AbortSignal, kind: Kind): Promise<Fe
         else callback(null, pinned.address, pinned.family);
       },
       maxHeaderSize: 16_384,
-      headers: { "User-Agent": "PiCompanion/0.1", Accept: kind.accept, "Accept-Encoding": "identity" },
+      headers: { "User-Agent": "ReadingCompanion/0.1", Accept: kind.accept, "Accept-Encoding": "identity" },
     }, response => {
       const status = response.statusCode ?? 0;
       const location = response.headers.location;

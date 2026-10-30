@@ -13,7 +13,7 @@ const results: Record<string, unknown> = { timestamp: new Date().toISOString(), 
 const launch = await findPi();
 const provider = await localModel();
 const settingsBefore = await readFile(resolve(provider.directory, "settings.json"), "utf8");
-const workspace = await mkdtemp(resolve(tmpdir(), "pi-companion-real-"));
+const workspace = await mkdtemp(resolve(tmpdir(), "reading-companion-real-"));
 const companion = new Companion(launch, workspace);
 try {
   await companion.restart("reading");

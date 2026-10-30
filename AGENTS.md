@@ -2,7 +2,7 @@
 
 ## Project overview
 
-Pi Companion is a local reading app for Chrome/Chromium/Brave. A Preact/TypeScript browser UI talks to a localhost Node server, which runs the installed Pi CLI as a long-lived RPC subprocess. Read `README.md` for product behavior and setup, and `docs/adr-0001-local-web-pi-rpc.md` for the accepted architecture and trade-offs before changing those areas.
+Reading Companion is a local reading app for Chrome/Chromium/Brave. A Preact/TypeScript browser UI talks to a localhost Node server, which runs the installed Pi CLI as a long-lived RPC subprocess. Read `README.md` for product behavior and setup, and `docs/adr-0001-local-web-pi-rpc.md` for the accepted architecture and trade-offs before changing those areas.
 
 ## Repository map
 

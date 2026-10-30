@@ -9,7 +9,7 @@ import { pastedSource } from "../server/source.js";
 import { fixture, waitFor } from "./helpers.js";
 
 test("the quiz skill file has one section per action, and {{focus}} lines drop out without a focus", async () => {
-  const dir = await mkdtemp(resolve(tmpdir(), "pi-companion-quiz-"));
+  const dir = await mkdtemp(resolve(tmpdir(), "reading-companion-quiz-"));
   try {
     const file = resolve(dir, "quiz.md");
     await writeFile(file, "# Notes\r\nNot sent: {{focus}}\r\n\r\n## Start\r\nQuiz me.\r\nFocus on: {{focus}}\r\nEnd.\r\n\r\n## More\r\nAgain.\r\n\r\n## Explain\r\n\r\n");

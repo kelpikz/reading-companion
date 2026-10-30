@@ -8,7 +8,7 @@ import { StringDecoder } from "node:string_decoder";
 export interface Launch { command: string; args: string[]; label: string }
 export async function findPi(): Promise<Launch> {
   const candidates: string[] = [];
-  if (process.env.PI_COMPANION_CLI) candidates.push(resolve(process.env.PI_COMPANION_CLI));
+  if (process.env.READING_COMPANION_CLI) candidates.push(resolve(process.env.READING_COMPANION_CLI));
   else {
     try {
       const entry = createRequire(import.meta.url).resolve("@earendil-works/pi-coding-agent");
@@ -29,7 +29,7 @@ export async function findPi(): Promise<Launch> {
       return { command: js ? process.execPath : candidate, args: js ? [candidate] : [], label: candidate };
     } catch { /* Try the next known installation. */ }
   }
-  throw new Error("Pi was not found. Install Pi, or set PI_COMPANION_CLI to its dist/bundle/cli.js path. Run Pi's /login first.");
+  throw new Error("Pi was not found. Install Pi, or set READING_COMPANION_CLI to its dist/bundle/cli.js path. Run Pi's /login first.");
 }
 
 export class JsonLines {

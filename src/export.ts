@@ -18,7 +18,7 @@ export function exportMarkdown(state: AppState) {
   const url = URL.createObjectURL(new Blob([lines.join("\n")], { type: "text/markdown;charset=utf-8" }));
   const link = document.createElement("a");
   link.href = url;
-  link.download = `pi-companion-${new Date().toISOString().slice(0, 10)}.md`;
+  link.download = `reading-companion-${new Date().toISOString().slice(0, 10)}.md`;
   link.click();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }

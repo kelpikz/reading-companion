@@ -11,14 +11,14 @@ import { widgetPath } from "../shared/widgets.js";
 import { fixture, waitFor } from "../tests/helpers.js";
 import { BUILTIN_REPLY, CHART, FLASHCARDS, QUIZ, STEPS, WIDGET_REPLY, WIDGET_SOURCE } from "../tests/fixtures/widgets.js";
 
-const candidates = [process.env.PI_COMPANION_BROWSER,
+const candidates = [process.env.READING_COMPANION_BROWSER,
   "C:/Program Files/BraveSoftware/Brave-Browser/Application/brave.exe",
   "C:/Program Files/Google/Chrome/Application/chrome.exe",
   "C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe",
   "/usr/bin/chromium", "/usr/bin/google-chrome", "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"].filter(Boolean) as string[];
 let executablePath = "";
 for (const candidate of candidates) { try { await access(candidate); executablePath = candidate; break; } catch {} }
-if (!executablePath) throw new Error("Set PI_COMPANION_BROWSER to a Chromium browser executable.");
+if (!executablePath) throw new Error("Set READING_COMPANION_BROWSER to a Chromium browser executable.");
 await mkdir("evidence", { recursive: true });
 const results: Record<string, unknown> = { timestamp: new Date().toISOString(), browser: executablePath, usesFakePi: true };
 const f = await fixture();

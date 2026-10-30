@@ -197,7 +197,7 @@ export function App() {
             {state?.source && !showPanel && <span class="badge" />}
           </button>
         )}
-        <div class="brand"><span class="logo" aria-hidden="true">π</span><span class="brand-name">Companion</span></div>
+        <div class="brand"><span class="logo" aria-hidden="true">π</span><span class="brand-name">Reading Companion</span></div>
         <div id="status" class="status" data-state={status} role="status" aria-live="polite" title={statusText}>
           <span class="status-dot" /><span id="status-text" class="status-text">{statusText}</span>
         </div>

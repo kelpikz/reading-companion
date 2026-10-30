@@ -4,14 +4,14 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const port = Number(process.env.PI_COMPANION_PORT ?? 47831);
-if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error("Invalid PI_COMPANION_PORT.");
+const port = Number(process.env.READING_COMPANION_PORT ?? 47831);
+if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error("Invalid READING_COMPANION_PORT.");
 const url = "http://127.0.0.1:" + port;
 const browser = () => {
-  if (process.env.PI_COMPANION_NO_BROWSER === "1") return;
+  if (process.env.READING_COMPANION_NO_BROWSER === "1") return;
   const brave = "C:/Program Files/BraveSoftware/Brave-Browser/Application/brave.exe";
   const chrome = "C:/Program Files/Google/Chrome/Application/chrome.exe";
-  const executable = process.env.PI_COMPANION_BROWSER || (process.platform === "win32" && existsSync(brave) ? brave : process.platform === "win32" && existsSync(chrome) ? chrome : "");
+  const executable = process.env.READING_COMPANION_BROWSER || (process.platform === "win32" && existsSync(brave) ? brave : process.platform === "win32" && existsSync(chrome) ? chrome : "");
   let child;
   if (executable) child = spawn(executable, [url], { detached: true, stdio: "ignore", windowsHide: true });
   else if (process.platform === "win32") child = spawn("rundll32.exe", ["url.dll,FileProtocolHandler", url], { detached: true, stdio: "ignore", windowsHide: true });
@@ -22,7 +22,7 @@ const browser = () => {
 async function probe() {
   try {
     const response = await fetch(url, { signal: AbortSignal.timeout(800) });
-    if (response.ok && (await response.text()).includes("<title>Pi · Reading companion</title>")) {
+    if (response.ok && (await response.text()).includes("<title>Reading Companion</title>")) {
       return { kind: "companion", build: response.headers.get("x-companion-build") ?? "" };
     }
     return { kind: "occupied" };
@@ -31,18 +31,18 @@ async function probe() {
 const existing = await probe();
 if (existing.kind === "companion") {
   // A server started before an update keeps running old code; reusing it mixes a new UI with an old server.
-  if (!existsSync(resolve(root, "dist-server/server/build.js"))) throw new Error("Build the app first with npm run build, or use Open Pi Companion.cmd.");
+  if (!existsSync(resolve(root, "dist-server/server/build.js"))) throw new Error("Build the app first with npm run build, or use Open Reading Companion.cmd.");
   const { buildId } = await import(pathToFileURL(resolve(root, "dist-server/server/build.js")).href);
-  if (existing.build === await buildId(resolve(root, "dist-server"))) { console.log("Pi Companion is already running: " + url); browser(); }
+  if (existing.build === await buildId(resolve(root, "dist-server"))) { console.log("Reading Companion is already running: " + url); browser(); }
   else {
-    console.error("An older version of Pi Companion is still running at " + url + ".\nClose its window (or press Ctrl+C in it), then start the app again.");
+    console.error("An older version of Reading Companion is still running at " + url + ".\nClose its window (or press Ctrl+C in it), then start the app again.");
     process.exitCode = 1;
   }
 }
-else if (existing.kind === "occupied") { console.error("Another app is using port " + port + ". Set PI_COMPANION_PORT to another port."); process.exitCode = 1; }
+else if (existing.kind === "occupied") { console.error("Another app is using port " + port + ". Set READING_COMPANION_PORT to another port."); process.exitCode = 1; }
 else {
   if (!existsSync(resolve(root, "dist-server/server/start.js")) || !existsSync(resolve(root, "dist/index.html"))) {
-    throw new Error("Build the app first with npm run build, or use Open Pi Companion.cmd.");
+    throw new Error("Build the app first with npm run build, or use Open Reading Companion.cmd.");
   }
   const child = spawn(process.execPath, [resolve(root, "dist-server/server/start.js")], { cwd: root, stdio: "inherit", windowsHide: true });
   let exited = false;

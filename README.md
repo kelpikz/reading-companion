@@ -2,7 +2,7 @@
 
 <img src="docs/media/logo.svg" width="72" height="72" alt="">
 
-# Pi Companion
+# Reading Companion
 
 **Read an article with an AI companion next to it.**<br>
 A local web app for Chrome, Chromium and Brave. Your installed [Pi](https://www.npmjs.com/package/@earendil-works/pi-coding-agent) agent runs behind it.
@@ -105,7 +105,7 @@ npm run build
 npm run open        # starts the server and opens http://127.0.0.1:47831
 ```
 
-- **Windows:** double-click **`Open Pi Companion.cmd`**. It installs, builds and opens Brave (or Chrome).
+- **Windows:** double-click **`Open Reading Companion.cmd`**. It installs, builds and opens Brave (or Chrome).
 - **macOS / Linux:** run `bash open.sh`. These platforms are not tested yet.
 
 **Keep the server window open while you use the app.** Press Ctrl+C or close the window to stop it. `npm start` starts the server and does not open a browser. Use the exact address `http://127.0.0.1:47831`, not `localhost`, a LAN address or a tunnel.
@@ -162,11 +162,11 @@ These environment variables apply to the launcher and the server. The app does n
 
 | Variable | Purpose |
 | --- | --- |
-| `PI_COMPANION_PORT` | Local port. Default `47831`. |
-| `PI_COMPANION_CLI` | Full path to Pi's `dist/bundle/cli.js` or a standalone executable, if the app cannot find Pi. Do not use Windows `pi.cmd`. |
-| `PI_COMPANION_WORKSPACE` | Start folder for Tools mode. Default `data/workspace`. **Not a sandbox.** |
-| `PI_COMPANION_BROWSER` | The browser for the launcher and the browser tests. |
-| `PI_COMPANION_NO_BROWSER=1` | Do not open a browser. |
+| `READING_COMPANION_PORT` | Local port. Default `47831`. |
+| `READING_COMPANION_CLI` | Full path to Pi's `dist/bundle/cli.js` or a standalone executable, if the app cannot find Pi. Do not use Windows `pi.cmd`. |
+| `READING_COMPANION_WORKSPACE` | Start folder for Tools mode. Default `data/workspace`. **Not a sandbox.** |
+| `READING_COMPANION_BROWSER` | The browser for the launcher and the browser tests. |
+| `READING_COMPANION_NO_BROWSER=1` | Do not open a browser. |
 | `PI_CODING_AGENT_DIR` | Optional Pi config folder. Pi's child process uses it too. |
 
 If your provider login is missing or expired, the chat shows an error. Log in again in a Pi terminal, then reconnect.
