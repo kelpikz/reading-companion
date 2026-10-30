@@ -5,6 +5,7 @@ import { Chat } from "./chat";
 import { exportMarkdown } from "./export";
 import { Icon, Spinner } from "./icons";
 import { Panel, type ArticleJump, type SourcePayload } from "./panel";
+import { PanelDivider } from "./panel-divider";
 
 interface Confirm { title: string; body: string; label: string; tools?: boolean; action: () => Promise<void> }
 type Status = "starting" | "ready" | "busy" | "error" | "offline";
@@ -36,6 +37,7 @@ export function App() {
   const [quoteOpen, setQuoteOpen] = useState(false);
   const wide = useWide();
   const [panelOpen, setPanelOpen] = useState(wide);
+  const [panelWidth, setPanelWidth] = useState<number | null>(null);
   const [articleJump, setArticleJump] = useState<ArticleJump | null>(null);
   const questionRef = useRef<HTMLTextAreaElement>(null);
   const modelRequest = useRef("");
@@ -226,12 +228,13 @@ export function App() {
         </div>
       )}
 
-      <div class="workspace">
+      <div class="workspace" style={{ "--panel-width": panelWidth === null ? undefined : `${panelWidth}%` }}>
         {showPanel && !wide && <div class="scrim" onClick={closePanel} />}
         {showPanel && state && (
           <Panel summary={state.source} source={source} idle={idle} sheet={!wide} jump={articleJump}
             onAttach={attach} onQuote={quoteSelection} onClose={closePanel} />
         )}
+        {showPanel && wide && <PanelDivider onResize={setPanelWidth} />}
         {state ? (
           <Chat state={state} idle={idle} tools={tools} panelVisible={showPanel && wide} models={modelList}
             question={question} setQuestion={setQuestion} quote={quote} setQuote={setQuote}

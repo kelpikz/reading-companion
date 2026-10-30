@@ -239,19 +239,39 @@ input:focus, .source-form textarea:focus { outline: none; border-color: var(--ac
 .banner .btn { border-color: var(--danger-border); color: var(--danger); background: transparent; }
 .banner .icon-btn { color: var(--danger); }
 
-.workspace { position: relative; flex: 1; min-height: 0; display: flex; }
+.workspace {
+  --panel-min: 320px; --chat-min: 400px; --divider-width: 8px;
+  position: relative; flex: 1; min-height: 0; display: flex;
+}
 .loading { flex: 1; display: flex; align-items: center; justify-content: center; gap: 10px; color: var(--text-3); }
 
 /* ---------- Article panel ---------- */
 .panel {
-  width: clamp(380px, 44%, 680px); flex-shrink: 0; min-height: 0;
-  display: flex; flex-direction: column;
-  background: var(--bg-panel); border-right: 1px solid var(--border);
+  width: clamp(var(--panel-min), var(--panel-width, clamp(380px, 44%, 680px)), calc(100% - var(--chat-min) - var(--divider-width)));
+  flex-shrink: 0; min-height: 0; display: flex; flex-direction: column;
+  background: var(--bg-panel);
 }
 .panel.sheet {
   position: absolute; inset: 0 auto 0 0; z-index: 30; width: min(100%, 560px);
-  box-shadow: var(--shadow-lg); animation: slide-in .2s ease-out;
+  border-right: 1px solid var(--border); box-shadow: var(--shadow-lg); animation: slide-in .2s ease-out;
 }
+.panel-divider {
+  position: relative; z-index: 1; flex: 0 0 var(--divider-width);
+  cursor: col-resize; touch-action: none; user-select: none;
+}
+.panel-divider::before {
+  content: ""; position: absolute; inset: 0 auto 0 0; width: 1px;
+  background: var(--border); transition: background .12s;
+}
+.panel-divider::after {
+  content: ""; position: absolute; top: 50%; left: 2px; width: 3px; height: 32px;
+  transform: translateY(-50%); border-radius: 2px; background: var(--border-strong);
+}
+.panel-divider:hover::before, .panel-divider:focus-visible::before, .panel-divider[data-resizing="true"]::before { background: var(--accent); }
+.panel-divider:hover::after, .panel-divider:focus-visible::after, .panel-divider[data-resizing="true"]::after { background: var(--accent); }
+.panel-divider:focus-visible { outline-offset: -2px; }
+.workspace:has(.panel-divider[data-resizing="true"]) * { cursor: col-resize !important; user-select: none !important; }
+.workspace:has(.panel-divider[data-resizing="true"]) iframe { pointer-events: none; }
 .scrim { position: absolute; inset: 0; z-index: 25; background: rgb(0 0 0 / .32); animation: fade-in .2s ease-out; }
 .panel-head {
   height: 44px; flex-shrink: 0; display: flex; align-items: center; gap: 4px;

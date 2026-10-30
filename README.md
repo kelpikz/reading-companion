@@ -29,7 +29,7 @@ The default address is **http://127.0.0.1:47831**. Use that exact address, not `
 
 Enter sends; Shift+Enter inserts a newline. Nothing automatically monitors your tabs. The app follows your system light/dark theme.
 
-On wide windows (1080 px or more), the article panel is on the left and the chat is on the right. On narrow windows, the chat fills the window, and the panel button at the top left opens the article as an overlay. A narrow window next to your real article tab works well.
+On wide windows (1080 px or more), the article panel is on the left and the chat is on the right. **Drag the divider** between them left or right to give either side more space. You can also focus the divider and use the arrow keys (Shift for larger steps), or Home/End for the smallest/largest article width. Double-click it or press Enter to reset the split. The split stays while you hide and reopen the panel; refreshing resets it. On narrow windows, the chat fills the window, and the panel button at the top left opens the article as an overlay. A narrow window next to your real article tab works well.
 
 **Chats and context live only in the local server's memory.** Refreshing the browser reconnects to the same conversation. Restarting the app loses it. All open app tabs share one live conversation. Exports, tool-created files, OS swap/crash data, and model-provider retention are outside this in-memory policy.
 

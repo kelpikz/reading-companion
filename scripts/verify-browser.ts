@@ -43,6 +43,66 @@ try {
   await page.screenshot({ path: "evidence/01-welcome-desktop.png", fullPage: true });
   assert.equal(await page.title(), "Pi · Reading companion"); results.launch = true;
 
+  const divider = page.getByRole("separator", { name: "Resize article panel" });
+  const panelWidth = () => page.locator("#panel").evaluate(node => node.getBoundingClientRect().width);
+  const expectPanelWidth = async (expected: number) => {
+    await page.waitForFunction(width => Math.abs(document.getElementById("panel")!.getBoundingClientRect().width - width) < 1, expected);
+  };
+  const dragDivider = async (x: number) => {
+    const box = (await divider.boundingBox())!;
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(x, box.y + box.height / 2, { steps: 8 });
+    await page.mouse.up();
+    assert.equal(await divider.getAttribute("data-resizing"), "false");
+  };
+  const defaultWidth = await panelWidth();
+  await dragDivider(defaultWidth + 204); await expectPanelWidth(defaultWidth + 200);
+  await dragDivider(defaultWidth - 156); await expectPanelWidth(defaultWidth - 160);
+  await page.locator("#toggle-panel").click();
+  assert.equal(await divider.count(), 0);
+  await page.locator("#toggle-panel").click(); await expectPanelWidth(defaultWidth - 160);
+  await dragDivider(4); await expectPanelWidth(320);
+  await dragDivider(1436); await expectPanelWidth(1032);
+  assert.equal(await page.locator(".chat").evaluate(node => node.getBoundingClientRect().width), 400);
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+  await divider.focus(); await divider.press("ArrowLeft"); await expectPanelWidth(1016);
+  await divider.press("Shift+ArrowLeft"); await expectPanelWidth(952);
+  await divider.press("ArrowRight"); await expectPanelWidth(968);
+  await divider.press("Home"); await expectPanelWidth(320);
+  await divider.press("End"); await expectPanelWidth(1032);
+  await page.setViewportSize({ width: 1080, height: 1000 }); await expectPanelWidth(672);
+  assert.equal(await page.locator(".chat").evaluate(node => node.getBoundingClientRect().width), 400);
+  await page.setViewportSize({ width: 1440, height: 1000 }); await expectPanelWidth(1032);
+  await divider.press("Enter"); await expectPanelWidth(defaultWidth);
+  await divider.press("ArrowRight"); await expectPanelWidth(defaultWidth + 16);
+  await divider.dblclick(); await expectPanelWidth(defaultWidth);
+  await page.waitForFunction(() => document.getElementById("panel-divider")?.getAttribute("aria-valuenow") === "44");
+  assert.equal(await divider.getAttribute("aria-controls"), "panel");
+
+  // A cancelled drag must restore normal selection and leave no stuck resize state.
+  const box = (await divider.boundingBox())!;
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.down();
+  assert.equal(await divider.getAttribute("data-resizing"), "true");
+  await page.evaluate(() => window.dispatchEvent(new Event("blur")));
+  assert.equal(await divider.getAttribute("data-resizing"), "false");
+  await page.mouse.move(box.x + 100, box.y + box.height / 2); await page.mouse.up();
+  await expectPanelWidth(defaultWidth);
+
+  // Real touch input follows the same pointer-capture path as a mouse drag.
+  const cdp = await context.newCDPSession(page);
+  await cdp.send("Emulation.setTouchEmulationEnabled", { enabled: true });
+  const touch = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+  await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [touch] });
+  await cdp.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [{ ...touch, x: touch.x + 100 }] });
+  await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+  await expectPanelWidth(defaultWidth + 100);
+  assert.equal(await divider.getAttribute("data-resizing"), "false");
+  await cdp.send("Emulation.setTouchEmulationEnabled", { enabled: false }); await cdp.detach();
+  await divider.press("Enter"); await expectPanelWidth(defaultWidth);
+  results.resizablePanes = true;
+
   await page.locator("#text-tab").click();
   await page.locator("#source-title").fill("The quiet intelligence of a forest");
   const article = "A forest is more than a collection of trees. Each layer of the ecosystem helps the others thrive.\n\nDiversity makes a forest resilient: roots, fungi, sunlight, and water connect the life within it. Good explanations help us see these relationships rather than just the individual pieces.";
@@ -86,9 +146,11 @@ try {
   await page.setViewportSize({ width: 390, height: 844 });
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
   assert.equal(await page.locator("#panel").count(), 0);
+  assert.equal(await divider.count(), 0, "No divider on narrow screens");
   await page.screenshot({ path: "evidence/03-reading-mobile.png", fullPage: true });
   await page.locator("#toggle-panel").click();
   assert.equal(await page.locator("#context-title").isVisible(), true);
+  assert.equal(await divider.count(), 0, "The mobile overlay is not resizable");
   await page.screenshot({ path: "evidence/04-context-mobile.png", fullPage: true });
   await page.locator("#toggle-panel").click();
   await page.setViewportSize({ width: 900, height: 800 });
@@ -123,6 +185,7 @@ try {
   await page.locator("#tools-mode").click(); await page.locator("#confirm-action").click();
   await page.locator("#confirm-dialog").waitFor({ state: "hidden" });
   await ready(); assert.equal(companion.state.mode, "tools");
+  assert.equal(await divider.count(), 0, "No divider in tool mode");
   assert.equal(companion.source, null); assert.equal(companion.state.messages.length, 0); results.explicitModeIsolation = true;
   assert.equal(companion.state.thinking, "high", "effort survives a new session"); results.effortSurvivesRestart = true;
   await send("TOOL_WORKFLOW");
