@@ -1,11 +1,11 @@
 {
-  "name": "pi-browser-companion",
+  "name": "reading-companion",
   "version": "0.1.0",
   "private": true,
   "type": "module",
   "description": "A local browser companion for reading with Pi",
   "license": "MIT",
-  "repository": "github:kelpikz/pi-companion",
+  "repository": "github:kelpikz/reading-companion",
   "engines": {
     "node": ">=22.19.0"
   },

@@ -98,8 +98,8 @@ On narrow windows, the chat fills the window. The panel button at the top left o
 **Then:**
 
 ```sh
-git clone https://github.com/kelpikz/pi-companion.git
-cd pi-companion
+git clone https://github.com/kelpikz/reading-companion.git
+cd reading-companion
 npm ci --ignore-scripts
 npm run build
 npm run open        # starts the server and opens http://127.0.0.1:47831
