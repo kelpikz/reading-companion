@@ -15,7 +15,7 @@ npm run test:launcher
 - `test:browser` drives the production app in headless Brave/Chrome using the same real Pi + local model. It checks desktop/mobile layouts, the dark theme, the resizable panes, the article reader (rich HTML, proxied images, the plain-text view), quoting a text selection, export, refresh, error handling, models, explicit tool mode, actual file tools, Stop, clickable article references (desktop/mobile, pasted text, and refresh), and malicious model output.
 - `test:widgets` uses the production UI, a fake Pi subprocess, and installed Brave/Chrome to test custom widgets (automatic start, collapse, Restart, streaming/interruption handling, refresh, the theme kit, responsive/dark layouts, and isolation) and built-in widgets (chart, steps, quiz with its section links and next-step buttons, flashcards, plain-text data, and invalid data). A local HTTP sink checks blocked requests, external resources, forms, popups, navigation, and access to app/storage. Run `npm run build` first; no real model login is needed. `test:browser` additionally verifies custom and built-in widget output through the real Pi RPC process and source export.
 - `test:launcher` checks the actual Windows double-click script, production build/startup, and reuse of an already-running app. It makes no model calls.
-- Reports and screenshots are in `evidence/`. They contain only test fixtures, not your credentials or chats. The Tools-mode screenshot (`evidence/05-tools-desktop.png`) is not committed, because it shows a local folder path.
+- The verify scripts write reports and screenshots to `evidence/`. This folder is not committed.
 - The local deterministic model proves the integration, not the quality/latency or availability of a remote provider.
 
 ## README media

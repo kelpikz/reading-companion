@@ -13,7 +13,7 @@ Pi Companion is a local reading app for Chrome/Chromium/Brave. A Preact/TypeScri
 - `server/source.ts` — link/image fetching, address validation, article extraction, and readable text.
 - `shared/` — browser/server contracts and shared article sanitization rules.
 - `tests/` — automated unit/integration tests; `scripts/` — launch and end-to-end verification.
-- `docs/` — architecture decisions. `evidence/` contains verification reports and screenshots.
+- `docs/` — architecture decisions. `evidence/` is local output from the verify scripts (not committed).
 
 `dist/`, `dist-server/`, `node_modules/`, and `data/` are generated, installed, or runtime data; do not hand-edit or commit their contents.
 

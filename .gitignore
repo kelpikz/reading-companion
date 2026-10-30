@@ -4,5 +4,5 @@ dist-server/
 data/
 *.log
 
-# Shows a local folder path (it has the OS user name), so it stays local.
-evidence/05-tools-desktop.png
+# Reports and screenshots from the verify scripts.
+evidence/
